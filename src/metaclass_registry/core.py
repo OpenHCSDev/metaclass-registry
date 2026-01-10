@@ -610,9 +610,14 @@ class AutoRegisterMeta(ABCMeta):
                 # (only create new registry if __registry_key__ is in the class body, not inherited)
                 key_attribute = attrs.get('__registry_key__')
                 if key_attribute is not None:
-                    # Auto-create registry dict and store on the class
-                    registry_dict = LazyDiscoveryDict()
-                    new_class.__registry__ = registry_dict
+                    # Check if class already provides its own __registry__ dict
+                    # (allows opting out of LazyDiscoveryDict)
+                    if '__registry__' in attrs:
+                        registry_dict = attrs['__registry__']
+                    else:
+                        # Auto-create registry dict and store on the class
+                        registry_dict = LazyDiscoveryDict()
+                        new_class.__registry__ = registry_dict
 
                     # Get other optional attributes from class
                     key_extractor = attrs.get('__key_extractor__')
