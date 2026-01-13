@@ -40,10 +40,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/trissim/metaclass-registry"
+Homepage = "https://github.com/OpenHCSDev/metaclass-registry"
 Documentation = "https://metaclass-registry.readthedocs.io"
-Repository = "https://github.com/trissim/metaclass-registry"
-Issues = "https://github.com/trissim/metaclass-registry/issues"
+Repository = "https://github.com/OpenHCSDev/metaclass-registry"
+Issues = "https://github.com/OpenHCSDev/metaclass-registry/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/metaclass_registry"]
