@@ -7,7 +7,7 @@ tags:
   - software architecture
 authors:
   - name: Tristan Simas
-    orcid: 0000-0000-0000-0000  # [TODO: Add ORCID]
+    orcid: 0000-0002-6526-3149
     affiliation: 1
 affiliations:
   - name: McGill University
@@ -116,4 +116,3 @@ Generative AI (Claude) assisted with code generation and documentation. All cont
 This work was supported by [TODO: Add funding sources].
 
 # References
-
