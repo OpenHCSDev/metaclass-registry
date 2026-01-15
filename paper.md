@@ -75,6 +75,8 @@ When Python processes a subclass definition, `AutoRegisterMeta.__new__` extracts
 
 **Lazy discovery** defers plugin imports until first registry access. `LazyDiscoveryDict` overrides `__getitem__`, `__contains__`, and iteration methods to trigger `pkgutil.iter_modules` scanning on first use. Results are cached to `~/.cache/metaclass-registry/` with version validation and file modification time checking—subsequent application starts load from cache without re-scanning.
 
+**Example**: An OpenHCS application with 40 storage backends doesn't import all 40 at startup. When the user selects "Zarr" from the UI, the registry is accessed, lazy discovery scans the `openhcs.io` package, imports only the Zarr backend, and caches the result. On the next application start, the cache is used instead of re-scanning. If a developer adds a new backend, the cache is invalidated (via mtime checking) and the scan runs again.
+
 **Secondary registries** handle related metadata. A microscope handler registers both itself and its metadata parser:
 
 ```python
@@ -103,7 +105,7 @@ Both `MicroscopeHandler.__registry__['imagexpress']` and `METADATA_HANDLERS['ima
 
 - **openhcs**: `BackendBase` (storage backends), `MicroscopeHandler` (format handlers), `METADATA_HANDLERS` (secondary registry)
 - **arraybridge**: `ConverterBase` (6 GPU framework converters auto-generated from config)
-- **pyqt-formgen**: `WidgetMeta` (widget adapters), `ParameterInfoMeta` (parameter type handlers)
+- **pyqt-reactor**: `WidgetMeta` (widget adapters), `ParameterInfoMeta` (parameter type handlers)
 
 The library consolidated ~200 lines of duplicated metaclass code into a single, tested implementation. Adding a new storage backend or microscope handler requires only the class definition—no registration code, no configuration updates.
 
