@@ -157,29 +157,21 @@ class LazyDiscoveryDict(dict):
         self._enable_cache = enable_cache
         self._cache_manager = None
         self._discovery_lock = threading.RLock()  # Reentrant lock for same-thread re-entry
+        self._discovery_package = None  # Store for pickling support
 
     def _set_config(self, base_class: Type, config: 'RegistryConfig') -> None:
         self._base_class = base_class
         self._config = config
+        self._discovery_package = config.discovery_package  # Store for pickling support
 
         # Initialize cache manager if caching is enabled
         if self._enable_cache and config.discovery_package:
             try:
                 cache_utils = _get_cache_manager()
 
-                # Get version getter (try to get version from discovery package)
-                def get_version():
-                    try:
-                        # Try to get version from the root package
-                        root_package = config.discovery_package.split('.')[0]
-                        mod = __import__(root_package)
-                        return getattr(mod, '__version__', 'unknown')
-                    except:
-                        return "unknown"
-
                 self._cache_manager = cache_utils['RegistryCacheManager'](
                     cache_name=f"{config.registry_name.replace(' ', '_')}_registry",
-                    version_getter=get_version,
+                    version_getter=self._get_version,
                     serializer=cache_utils['serialize_plugin_class'],
                     deserializer=cache_utils['deserialize_plugin_class'],
                     config=cache_utils['CacheConfig'](
@@ -190,6 +182,23 @@ class LazyDiscoveryDict(dict):
             except Exception as e:
                 logger.debug(f"Failed to initialize cache manager: {e}")
                 self._cache_manager = None
+
+    def _get_version(self) -> str:
+        """
+        Get version from the discovery package for cache validation.
+
+        Returns:
+            Version string or 'unknown' if unable to determine
+        """
+        try:
+            # Try to get version from the root package
+            if self._discovery_package:
+                root_package = self._discovery_package.split('.')[0]
+                mod = __import__(root_package)
+                return getattr(mod, '__version__', 'unknown')
+        except:
+            pass
+        return "unknown"
 
     def _discover(self) -> None:
         """
@@ -309,6 +318,41 @@ class LazyDiscoveryDict(dict):
         with self._discovery_lock:
             self._discover()
             return super().get(k, default)
+
+    def __getstate__(self):
+        """
+        Return state for pickling, excluding non-picklable objects.
+
+        The _discovery_lock and _cache_manager are excluded since they contain
+        non-picklable objects (RLock and potentially closures).
+        """
+        state = dict(self)  # Copy the dict contents
+        state.update({
+            '_base_class': self._base_class,
+            '_config': self._config,
+            '_discovered': self._discovered,
+            '_enable_cache': self._enable_cache,
+            '_discovery_package': self._discovery_package,
+            # Exclude: _discovery_lock, _cache_manager
+        })
+        return state
+
+    def __setstate__(self, state):
+        """
+        Restore state from pickle, recreating non-picklable objects.
+
+        The _discovery_lock is recreated as a new RLock.
+        The _cache_manager is set to None and will be reinitialized if needed.
+        """
+        # Restore dict contents
+        for key, value in state.items():
+            if key.startswith('_'):
+                setattr(self, key, value)
+            else:
+                self[key] = value
+        # Recreate non-picklable objects
+        self._discovery_lock = threading.RLock()
+        self._cache_manager = None  # Will be reinitialized if needed
 
 
 @dataclass(frozen=True)
