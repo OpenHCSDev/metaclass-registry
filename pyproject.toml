@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "metaclass-registry"
-version = "0.1.3"
+version = "0.1.4"
 description = "Zero-boilerplate metaclass-driven plugin registry system with lazy discovery and caching"
 authors = [{name = "Tristan Simas", email = "tristan.simas@mail.mcgill.ca"}]
 license = {text = "MIT"}
@@ -69,11 +69,11 @@ target-version = ["py39", "py310", "py311", "py312"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "0.1.4"
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "0.1.4"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
