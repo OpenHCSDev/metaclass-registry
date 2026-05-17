@@ -88,6 +88,7 @@ class RegistryKeyAttribute(str, Enum):
     """Common class-attribute names used as registry keys."""
 
     REGISTRY_KEY = "registry_key"
+    STRATEGY_KEY = "strategy_key"
     STRATEGY_LABEL = "strategy_label"
     VALUE_TYPE_LABEL = "value_type_label"
     LAYOUT_KEY = "layout_key"
