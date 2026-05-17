@@ -4,6 +4,8 @@ import pytest
 from metaclass_registry import (
     AutoRegisterMeta,
     RegistryConfig,
+    RegistryFamily,
+    RegistryKeyAttribute,
     LazyDiscoveryDict,
     SecondaryRegistryDict,
     SecondaryRegistry,
@@ -338,6 +340,40 @@ class TestAutoConfiguration:
         # Registry should be auto-created and attached to class
         assert hasattr(MyPlugin, '__registry__')
         assert isinstance(MyPlugin.__registry__, LazyDiscoveryDict)
+
+    def test_registry_family_declares_root_configuration(self):
+        """Test nominal registry family declaration without legacy boilerplate."""
+
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_family__ = RegistryFamily(
+                RegistryKeyAttribute.STRATEGY_LABEL,
+                registry_name='test strategy',
+            )
+            strategy_label = None
+
+        class MyPlugin(Plugin):
+            strategy_label = 'mine'
+
+        assert Plugin.__registry_key__ == 'strategy_label'
+        assert Plugin.__skip_if_no_key__ is True
+        assert Plugin.__registry_name__ == 'test strategy'
+        assert 'mine' in Plugin.__registry__
+        assert Plugin.__registry__['mine'] is MyPlugin
+
+    def test_registry_family_respects_legacy_overrides(self):
+        """Test explicit legacy attributes override family defaults."""
+
+        with pytest.raises(ValueError, match="must have strategy_label attribute"):
+
+            class Plugin(metaclass=AutoRegisterMeta):
+                __registry_family__ = RegistryFamily(
+                    RegistryKeyAttribute.STRATEGY_LABEL
+                )
+                __skip_if_no_key__ = False
+                strategy_label = None
+
+            class MissingKeyPlugin(Plugin):
+                pass
 
 
 class TestComplexScenarios:

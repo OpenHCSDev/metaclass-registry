@@ -10,6 +10,8 @@ __version__ = "0.1.4"
 from .core import (
     AutoRegisterMeta,
     RegistryConfig,
+    RegistryFamily,
+    RegistryKeyAttribute,
     PRIMARY_KEY,
     SecondaryRegistry,
     LazyDiscoveryDict,
@@ -26,6 +28,8 @@ __all__ = [
     # Core
     "AutoRegisterMeta",
     "RegistryConfig",
+    "RegistryFamily",
+    "RegistryKeyAttribute",
     "PRIMARY_KEY",
     "SecondaryRegistry",
     "LazyDiscoveryDict",

@@ -46,6 +46,7 @@ import logging
 import threading
 from abc import ABCMeta
 from dataclasses import dataclass
+from enum import Enum
 from typing import Dict, Type, Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,15 @@ KeyExtractor = Callable[[str, Type], str]
 
 # Constants for key sources
 PRIMARY_KEY = 'primary'
+
+
+class RegistryKeyAttribute(str, Enum):
+    """Common class-attribute names used as registry keys."""
+
+    REGISTRY_KEY = "registry_key"
+    STRATEGY_LABEL = "strategy_label"
+    VALUE_TYPE_LABEL = "value_type_label"
+    LAYOUT_KEY = "layout_key"
 
 
 class SecondaryRegistryDict(dict):
@@ -364,6 +374,37 @@ class SecondaryRegistry:
 
 
 @dataclass(frozen=True)
+class RegistryFamily:
+    """Declarative registry-family configuration for ``AutoRegisterMeta`` roots.
+
+    ``AutoRegisterMeta`` historically used low-level class attributes such as
+    ``__registry_key__`` and ``__skip_if_no_key__``.  Those attributes remain
+    the compatibility surface, but registry roots can now declare one nominal
+    family object and let the metaclass install the legacy attributes.
+    """
+
+    key_attribute: str | RegistryKeyAttribute
+    skip_if_no_key: bool = True
+    registry_name: Optional[str] = None
+
+    @property
+    def key_attribute_name(self) -> str:
+        """Return the string attribute name consumed by ``AutoRegisterMeta``."""
+        if isinstance(self.key_attribute, RegistryKeyAttribute):
+            return self.key_attribute.value
+        return self.key_attribute
+
+    def apply_to_class(self, cls: Type, explicit_attrs: dict) -> None:
+        """Install legacy metaclass attributes for compatibility/introspection."""
+        if '__registry_key__' not in explicit_attrs:
+            cls.__registry_key__ = self.key_attribute_name
+        if '__skip_if_no_key__' not in explicit_attrs:
+            cls.__skip_if_no_key__ = self.skip_if_no_key
+        if self.registry_name is not None and '__registry_name__' not in explicit_attrs:
+            cls.__registry_name__ = self.registry_name
+
+
+@dataclass(frozen=True)
 class RegistryConfig:
     """
     Configuration for automatic class registration behavior.
@@ -480,8 +521,12 @@ class AutoRegisterMeta(ABCMeta):
         Returns:
             The newly created class
         """
+        registry_family = attrs.get('__registry_family__')
+
         # Create the class using ABCMeta
         new_class = super().__new__(mcs, name, bases, attrs)
+        if isinstance(registry_family, RegistryFamily):
+            registry_family.apply_to_class(new_class, attrs)
 
         # Auto-configure registry if not provided but class has __registry__ attributes
         if registry_config is None:
@@ -650,9 +695,13 @@ class AutoRegisterMeta(ABCMeta):
                     registry_name = getattr(base, '__registry_name__', None)
                     break
             else:
-                # No parent registry found - check if class explicitly defines __registry_key__
-                # (only create new registry if __registry_key__ is in the class body, not inherited)
+                # No parent registry found - check if class explicitly defines a
+                # registry family or __registry_key__ (only create new registry
+                # from the class body, not inherited).
+                registry_family = attrs.get('__registry_family__')
                 key_attribute = attrs.get('__registry_key__')
+                if key_attribute is None and isinstance(registry_family, RegistryFamily):
+                    key_attribute = registry_family.key_attribute_name
                 if key_attribute is not None:
                     # Check if class already provides its own __registry__ dict
                     # (allows opting out of LazyDiscoveryDict)
@@ -663,11 +712,22 @@ class AutoRegisterMeta(ABCMeta):
                         registry_dict = LazyDiscoveryDict()
                         new_class.__registry__ = registry_dict
 
-                    # Get other optional attributes from class
+                    # Get other optional attributes from class. Explicit legacy
+                    # class attributes override the family declaration.
                     key_extractor = attrs.get('__key_extractor__')
-                    skip_if_no_key = attrs.get('__skip_if_no_key__', True)
+                    if '__skip_if_no_key__' in attrs:
+                        skip_if_no_key = attrs['__skip_if_no_key__']
+                    elif isinstance(registry_family, RegistryFamily):
+                        skip_if_no_key = registry_family.skip_if_no_key
+                    else:
+                        skip_if_no_key = True
                     secondary_registries = attrs.get('__secondary_registries__')
-                    registry_name = attrs.get('__registry_name__')
+                    if '__registry_name__' in attrs:
+                        registry_name = attrs['__registry_name__']
+                    elif isinstance(registry_family, RegistryFamily):
+                        registry_name = registry_family.registry_name
+                    else:
+                        registry_name = None
                 else:
                     return None  # No registry configuration found
         else:
@@ -769,4 +829,3 @@ def make_suffix_extractor(suffix: str) -> KeyExtractor:
 # Pre-built extractors for common patterns
 extract_key_from_handler_suffix = make_suffix_extractor('Handler')
 extract_key_from_backend_suffix = make_suffix_extractor('Backend')
-
