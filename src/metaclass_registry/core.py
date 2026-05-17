@@ -47,6 +47,7 @@ import threading
 from abc import ABCMeta
 from dataclasses import dataclass
 from enum import Enum
+from enum import EnumMeta
 from typing import Dict, Type, Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
@@ -795,6 +796,10 @@ class AutoRegisterMeta(ABCMeta):
             # Register in secondary registry
             sec_reg.registry_dict[secondary_key] = value
             logger.debug(f"Auto-registered {sec_reg.attr_name} from {cls.__name__} as '{secondary_key}'")
+
+
+class RegisteredEnumMeta(AutoRegisterMeta, EnumMeta):
+    """Metaclass for enum families that also need AutoRegisterMeta membership."""
 
 
 # Helper functions for common key extraction patterns

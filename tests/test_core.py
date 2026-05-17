@@ -1,11 +1,13 @@
 """Tests for metaclass_registry.core module."""
 
 import pytest
+from enum import Enum
 from metaclass_registry import (
     AutoRegisterMeta,
     RegistryConfig,
     RegistryFamily,
     RegistryKeyAttribute,
+    RegisteredEnumMeta,
     LazyDiscoveryDict,
     SecondaryRegistryDict,
     SecondaryRegistry,
@@ -350,6 +352,18 @@ class TestAutoConfiguration:
         # Registry should be auto-created and attached to class
         assert hasattr(MyPlugin, '__registry__')
         assert isinstance(MyPlugin.__registry__, LazyDiscoveryDict)
+
+    def test_registered_enum_meta_registers_enum_leaves(self):
+        """Test enum families can also use AutoRegisterMeta registration."""
+
+        class BaseVariant(str, Enum, metaclass=RegisteredEnumMeta):
+            __registry_key__ = "__name__"
+
+        class ConcreteVariant(BaseVariant):
+            ALPHA = "alpha"
+
+        assert "ConcreteVariant" in BaseVariant.__registry__
+        assert BaseVariant.__registry__["ConcreteVariant"] is ConcreteVariant
 
     def test_registry_family_declares_root_configuration(self):
         """Test nominal registry family declaration without legacy boilerplate."""
