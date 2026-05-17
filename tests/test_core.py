@@ -10,6 +10,7 @@ from metaclass_registry import (
     SecondaryRegistryDict,
     SecondaryRegistry,
     PRIMARY_KEY,
+    extract_key_from_class_name,
     extract_key_from_handler_suffix,
     extract_key_from_backend_suffix,
     make_suffix_extractor,
@@ -268,6 +269,15 @@ class TestAutoRegisterMeta:
 
 class TestSuffixExtractors:
     """Test suffix extraction helper functions."""
+
+    def test_extract_key_from_class_name(self):
+        """Test class-name key extractor."""
+
+        class DummyClass:
+            pass
+
+        result = extract_key_from_class_name('ImageXpressHandler', DummyClass)
+        assert result == 'ImageXpressHandler'
 
     def test_extract_handler_suffix(self):
         """Test extract_key_from_handler_suffix."""

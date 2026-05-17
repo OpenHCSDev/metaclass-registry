@@ -799,6 +799,11 @@ class AutoRegisterMeta(ABCMeta):
 
 # Helper functions for common key extraction patterns
 
+def extract_key_from_class_name(name: str, cls: Type) -> str:
+    """Use the concrete class name as its registry key."""
+    return name
+
+
 def make_suffix_extractor(suffix: str) -> KeyExtractor:
     """
     Create a key extractor that removes a suffix from class names.
