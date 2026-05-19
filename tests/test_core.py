@@ -399,6 +399,52 @@ class TestAutoConfiguration:
             class MissingKeyPlugin(Plugin):
                 pass
 
+    def test_autoregister_root_inherits_protocol_config_from_mixin(self):
+        """Test roots can inherit registry protocol config without copying fields."""
+
+        class RegisteredMethodStrategy:
+            __registry_key__ = 'method'
+            __skip_if_no_key__ = True
+            method = None
+
+        class MethodStrategy(RegisteredMethodStrategy, metaclass=AutoRegisterMeta):
+            pass
+
+        class MeanStrategy(MethodStrategy):
+            method = 'mean'
+
+        assert hasattr(MethodStrategy, '__registry__')
+        assert MethodStrategy.__registry_key__ == 'method'
+        assert MethodStrategy.__skip_if_no_key__ is True
+        assert 'mean' in MethodStrategy.__registry__
+        assert MethodStrategy.__registry__['mean'] is MeanStrategy
+
+    def test_inherited_protocol_config_creates_distinct_root_registries(self):
+        """Test one protocol mixin can seed multiple independent registry roots."""
+
+        class RegisteredMethodStrategy:
+            __registry_key__ = 'method'
+            __skip_if_no_key__ = True
+            method = None
+
+        class SpatialStrategy(RegisteredMethodStrategy, metaclass=AutoRegisterMeta):
+            pass
+
+        class ProjectionStrategy(RegisteredMethodStrategy, metaclass=AutoRegisterMeta):
+            pass
+
+        class MeanSpatialStrategy(SpatialStrategy):
+            method = 'mean'
+
+        class MaxProjectionStrategy(ProjectionStrategy):
+            method = 'max_projection'
+
+        assert SpatialStrategy.__registry__ is not ProjectionStrategy.__registry__
+        assert SpatialStrategy.__registry__ == {'mean': MeanSpatialStrategy}
+        assert ProjectionStrategy.__registry__ == {
+            'max_projection': MaxProjectionStrategy
+        }
+
 
 class TestComplexScenarios:
     """Test complex real-world scenarios."""

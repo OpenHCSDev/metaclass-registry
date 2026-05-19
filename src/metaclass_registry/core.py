@@ -699,11 +699,20 @@ class AutoRegisterMeta(ABCMeta):
             else:
                 # No parent registry found - check if class explicitly defines a
                 # registry family or __registry_key__ (only create new registry
-                # from the class body, not inherited).
+                # from the class body, or from an inherited registry protocol
+                # mixin that does not own a registry itself).
                 registry_family = attrs.get('__registry_family__')
                 key_attribute = attrs.get('__registry_key__')
                 if key_attribute is None and isinstance(registry_family, RegistryFamily):
                     key_attribute = registry_family.key_attribute_name
+                inherited_registry_base = None
+                if key_attribute is None:
+                    for base in new_class.__mro__[1:]:
+                        inherited_key_attribute = getattr(base, '__registry_key__', None)
+                        if inherited_key_attribute is not None:
+                            inherited_registry_base = base
+                            key_attribute = inherited_key_attribute
+                            break
                 if key_attribute is not None:
                     # Check if class already provides its own __registry__ dict
                     # (allows opting out of LazyDiscoveryDict)
@@ -715,19 +724,38 @@ class AutoRegisterMeta(ABCMeta):
                         new_class.__registry__ = registry_dict
 
                     # Get other optional attributes from class. Explicit legacy
-                    # class attributes override the family declaration.
+                    # class attributes override the family/inherited declaration.
                     key_extractor = attrs.get('__key_extractor__')
+                    if key_extractor is None and inherited_registry_base is not None:
+                        key_extractor = getattr(
+                            inherited_registry_base, '__key_extractor__', None
+                        )
                     if '__skip_if_no_key__' in attrs:
                         skip_if_no_key = attrs['__skip_if_no_key__']
                     elif isinstance(registry_family, RegistryFamily):
                         skip_if_no_key = registry_family.skip_if_no_key
+                    elif inherited_registry_base is not None:
+                        skip_if_no_key = getattr(
+                            inherited_registry_base, '__skip_if_no_key__', True
+                        )
                     else:
                         skip_if_no_key = True
                     secondary_registries = attrs.get('__secondary_registries__')
+                    if (
+                        secondary_registries is None
+                        and inherited_registry_base is not None
+                    ):
+                        secondary_registries = getattr(
+                            inherited_registry_base, '__secondary_registries__', None
+                        )
                     if '__registry_name__' in attrs:
                         registry_name = attrs['__registry_name__']
                     elif isinstance(registry_family, RegistryFamily):
                         registry_name = registry_family.registry_name
+                    elif inherited_registry_base is not None:
+                        registry_name = getattr(
+                            inherited_registry_base, '__registry_name__', None
+                        )
                     else:
                         registry_name = None
                 else:
