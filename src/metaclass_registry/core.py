@@ -52,30 +52,6 @@ from typing import Dict, Type, Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
 
-# Lazy import to avoid circular dependency
-_registry_cache_manager = None
-
-def _get_cache_manager():
-    """Lazy import of RegistryCacheManager to avoid circular imports."""
-    global _registry_cache_manager
-    if _registry_cache_manager is None:
-        from metaclass_registry.cache import (
-            RegistryCacheManager,
-            CacheConfig,
-            serialize_plugin_class,
-            deserialize_plugin_class,
-            get_package_file_mtimes
-        )
-        _registry_cache_manager = {
-            'RegistryCacheManager': RegistryCacheManager,
-            'CacheConfig': CacheConfig,
-            'serialize_plugin_class': serialize_plugin_class,
-            'deserialize_plugin_class': deserialize_plugin_class,
-            'get_package_file_mtimes': get_package_file_mtimes
-        }
-    return _registry_cache_manager
-
-
 # Type aliases for clarity
 RegistryDict = Dict[str, Type]
 KeyExtractor = Callable[[str, Type], str]
@@ -171,6 +147,28 @@ class LazyDiscoveryDict(dict):
         self._discovery_lock = threading.RLock()  # Reentrant lock for same-thread re-entry
         self._discovery_package = None  # Store for pickling support
 
+    _cache_components = None
+
+    @classmethod
+    def cache_components(cls):
+        """Return lazily imported cache components without a module helper."""
+        if cls._cache_components is None:
+            from metaclass_registry.cache import (
+                RegistryCacheManager,
+                CacheConfig,
+                serialize_plugin_class,
+                deserialize_plugin_class,
+                get_package_file_mtimes
+            )
+            cls._cache_components = {
+                'RegistryCacheManager': RegistryCacheManager,
+                'CacheConfig': CacheConfig,
+                'serialize_plugin_class': serialize_plugin_class,
+                'deserialize_plugin_class': deserialize_plugin_class,
+                'get_package_file_mtimes': get_package_file_mtimes
+            }
+        return cls._cache_components
+
     def _set_config(self, base_class: Type, config: 'RegistryConfig') -> None:
         self._base_class = base_class
         self._config = config
@@ -179,7 +177,7 @@ class LazyDiscoveryDict(dict):
         # Initialize cache manager if caching is enabled
         if self._enable_cache and config.discovery_package:
             try:
-                cache_utils = _get_cache_manager()
+                cache_utils = self.cache_components()
 
                 self._cache_manager = cache_utils['RegistryCacheManager'](
                     cache_name=f"{config.registry_name.replace(' ', '_')}_registry",
@@ -279,7 +277,7 @@ class LazyDiscoveryDict(dict):
                 # Save to cache if enabled
                 if self._cache_manager:
                     try:
-                        cache_utils = _get_cache_manager()
+                        cache_utils = self.cache_components()
                         file_mtimes = cache_utils['get_package_file_mtimes'](
                             self._config.discovery_package
                         )

@@ -33,6 +33,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from enum import Enum
 from typing import Dict, Any, Optional, Callable, TypeVar, Generic
 from dataclasses import dataclass
 
@@ -66,6 +67,64 @@ def get_cache_file_path(cache_name: str) -> Path:
     return cache_dir / cache_name
 
 T = TypeVar('T')  # Generic type for cached items
+
+
+class CacheKeyCodec:
+    """JSON-safe, reversible representation for registry keys."""
+
+    PRIMITIVE_KIND = "primitive"
+    ENUM_KIND = "enum"
+    TUPLE_KIND = "tuple"
+
+    @classmethod
+    def encode(cls, key: Any) -> Dict[str, Any]:
+        if isinstance(key, (str, int, float, bool)) or key is None:
+            return {"kind": cls.PRIMITIVE_KIND, "value": key}
+        if isinstance(key, Enum):
+            return {
+                "kind": cls.ENUM_KIND,
+                "module": key.__class__.__module__,
+                "class_name": key.__class__.__name__,
+                "member_name": key.name,
+            }
+        if isinstance(key, tuple):
+            return {
+                "kind": cls.TUPLE_KIND,
+                "items": [cls.encode(item) for item in key],
+            }
+        raise TypeError(f"Unsupported registry cache key type: {type(key)!r}")
+
+    @classmethod
+    def decode(cls, payload: Dict[str, Any]) -> Any:
+        kind = payload["kind"]
+        try:
+            decoder = CACHE_KEY_DECODERS[kind]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported registry cache key kind: {kind!r}") from exc
+        return decoder(payload)
+
+
+def _decode_primitive_cache_key(payload: Dict[str, Any]) -> Any:
+    return payload["value"]
+
+
+def _decode_enum_cache_key(payload: Dict[str, Any]) -> Enum:
+    import importlib
+
+    enum_module = importlib.import_module(payload["module"])
+    enum_type = vars(enum_module)[payload["class_name"]]
+    return enum_type[payload["member_name"]]
+
+
+def _decode_tuple_cache_key(payload: Dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(CacheKeyCodec.decode(item) for item in payload["items"])
+
+
+CACHE_KEY_DECODERS: Dict[str, Callable[[Dict[str, Any]], Any]] = {
+    CacheKeyCodec.PRIMITIVE_KIND: _decode_primitive_cache_key,
+    CacheKeyCodec.ENUM_KIND: _decode_enum_cache_key,
+    CacheKeyCodec.TUPLE_KIND: _decode_tuple_cache_key,
+}
 
 
 @dataclass
@@ -164,7 +223,15 @@ class RegistryCacheManager(Generic[T]):
         
         # Deserialize items
         items = {}
-        for key, item_data in cache_data.get('items', {}).items():
+        item_entries = cache_data.get('item_entries')
+        if item_entries is None:
+            item_entries = [
+                {"key": CacheKeyCodec.encode(key), "item": item_data}
+                for key, item_data in cache_data.get('items', {}).items()
+            ]
+        for entry in item_entries:
+            key = CacheKeyCodec.decode(entry['key'])
+            item_data = entry['item']
             try:
                 items[key] = self.deserializer(item_data)
             except Exception as e:
@@ -190,7 +257,7 @@ class RegistryCacheManager(Generic[T]):
             'cache_version': self.config.cache_version,
             'version': self.version_getter(),
             'timestamp': time.time(),
-            'items': {}
+            'item_entries': []
         }
         
         # Add file mtimes if provided
@@ -200,7 +267,10 @@ class RegistryCacheManager(Generic[T]):
         # Serialize items
         for key, item in items.items():
             try:
-                cache_data['items'][key] = self.serializer(item)
+                cache_data['item_entries'].append({
+                    'key': CacheKeyCodec.encode(key),
+                    'item': self.serializer(item),
+                })
             except Exception as e:
                 logger.warning(f"Failed to serialize {key} for cache: {e}")
         
@@ -292,19 +362,31 @@ def get_package_file_mtimes(package_path: str) -> Dict[str, float]:
         Dictionary mapping file paths to modification times
     """
     import importlib
+    import importlib.util
     from pathlib import Path
     
     try:
-        pkg = importlib.import_module(package_path)
-        pkg_dir = Path(pkg.__file__).parent
-        
+        importlib.import_module(package_path)
+        spec = importlib.util.find_spec(package_path)
+        if spec is None:
+            return {}
+        if spec.submodule_search_locations:
+            package_dirs = [
+                Path(location)
+                for location in spec.submodule_search_locations
+            ]
+        elif spec.origin is not None:
+            package_dirs = [Path(spec.origin).parent]
+        else:
+            return {}
+
         mtimes = {}
-        for py_file in pkg_dir.rglob("*.py"):
-            if not py_file.name.startswith('_'):  # Skip __pycache__, etc.
-                mtimes[str(py_file)] = py_file.stat().st_mtime
+        for package_dir in package_dirs:
+            for py_file in package_dir.rglob("*.py"):
+                if not py_file.name.startswith('_'):  # Skip __pycache__, etc.
+                    mtimes[str(py_file)] = py_file.stat().st_mtime
         
         return mtimes
     except Exception as e:
         logger.warning(f"Failed to get mtimes for {package_path}: {e}")
         return {}
-
