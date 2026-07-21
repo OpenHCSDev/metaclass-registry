@@ -243,7 +243,7 @@ class LazyDiscoveryDict(dict):
                     if cached_plugins is not None:
                         # Reconstruct registry from cache
                         self.update(cached_plugins)
-                        logger.info(
+                        logger.debug(
                             f"✅ Loaded {len(self)} {self._config.registry_name}s from cache"
                         )
                         return

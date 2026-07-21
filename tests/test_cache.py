@@ -354,8 +354,8 @@ class TestRegistryCacheManager:
             if manager._cache_path.exists():
                 with open(manager._cache_path, 'r') as f:
                     data = json.load(f)
-                    # Items should be empty due to serialization failures
-                    assert len(data['items']) == 0
+                    # Item entries should be empty due to serialization failures
+                    assert len(data['item_entries']) == 0
 
     def test_deserialization_error_handling(self, tmp_path):
         """Test handling of deserialization errors."""

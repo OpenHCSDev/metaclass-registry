@@ -238,7 +238,7 @@ class RegistryCacheManager(Generic[T]):
                 logger.warning(f"Failed to deserialize {key} from cache: {e}")
                 return None  # Invalidate entire cache on any deserialization error
         
-        logger.info(f"✅ Loaded {len(items)} items from {self.cache_name} cache")
+        logger.debug(f"✅ Loaded {len(items)} items from {self.cache_name} cache")
         return items
     
     def save_cache(
@@ -279,7 +279,7 @@ class RegistryCacheManager(Generic[T]):
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self._cache_path, 'w') as f:
                 json.dump(cache_data, f, indent=2)
-            logger.info(f"💾 Saved {len(items)} items to {self.cache_name} cache")
+            logger.debug(f"💾 Saved {len(items)} items to {self.cache_name} cache")
         except Exception as e:
             logger.warning(f"Failed to save {self.cache_name} cache: {e}")
     
