@@ -6,7 +6,7 @@
 [![Documentation Status](https://readthedocs.org/projects/metaclass-registry/badge/?version=latest)](https://metaclass-registry.readthedocs.io/en/latest/?badge=latest)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage](https://raw.githubusercontent.com/trissim/metaclass-registry/main/.github/badges/coverage.svg)](https://trissim.github.io/metaclass-registry/coverage/)
+[![Coverage](https://raw.githubusercontent.com/OpenHCSDev/metaclass-registry/main/.github/badges/coverage.svg)](https://openhcsdev.github.io/metaclass-registry/coverage/)
 
 ## Features
 
@@ -16,18 +16,25 @@
 - **Secondary Registries**: Auto-populate related registries from primary registry
 - **Persistent Caching**: Cache discovery results across process restarts
 - **Auto-Configuration**: Automatic inference of discovery packages and recursive settings
+- **Nominal Registry Families**: Stable key-axis declarations with
+  ``RegistryFamily`` and ``RegistryKeyAttribute``
+- **Registered Enums**: ``RegisteredEnumMeta`` for enum members backed by a
+  nominal registry
 - **Type-Safe**: Full type hints and mypy support
 
 ## Quick Start
 
 ```python
-from metaclass_registry import AutoRegisterMeta
+from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
-# Define a base class with registry configuration
+# Define the nominal family and its semantic key axis.
 class PluginBase(metaclass=AutoRegisterMeta):
-    __registry_key__ = 'plugin_name'  # Attribute to use as registry key
-    
-    plugin_name: str = None  # Subclasses set this to register
+    __registry_family__ = RegistryFamily(
+        "plugin_name",
+        registry_name="plugin",
+    )
+    __registry__ = {}  # Local script: no package discovery required.
+    plugin_name = None
 
 # Access the auto-created registry
 PLUGINS = PluginBase.__registry__
@@ -43,6 +50,51 @@ class MyPlugin(PluginBase):
 print(list(PLUGINS.keys()))  # ['my_plugin']
 plugin = PLUGINS['my_plugin']()
 print(plugin.run())  # "Hello from my plugin!"
+```
+
+``RegistryFamily`` is the preferred declaration for an ordinary nominal root.
+It installs the compatibility attributes used by ``AutoRegisterMeta`` while
+keeping the key axis in one object. Consumers should iterate or query
+``PluginBase.__registry__`` rather than maintain a parallel plugin mapping.
+The explicit plain registry is appropriate for this one-file example. A root
+declared in an importable package can omit it to use lazy package discovery.
+
+Use ``RegistryConfig`` when a family needs a supplied registry, a key extractor,
+lazy discovery, secondary registries, or custom logging:
+
+```python
+from metaclass_registry import (
+    AutoRegisterMeta,
+    RegistryConfig,
+    make_suffix_extractor,
+)
+
+HANDLERS = {}
+HANDLER_CONFIG = RegistryConfig(
+    registry_dict=HANDLERS,
+    key_attribute="handler_type",
+    key_extractor=make_suffix_extractor("Handler"),
+    skip_if_no_key=True,
+    registry_name="handler",
+)
+
+class HandlerMeta(AutoRegisterMeta):
+    def __new__(mcls, name, bases, namespace):
+        return super().__new__(
+            mcls,
+            name,
+            bases,
+            namespace,
+            registry_config=HANDLER_CONFIG,
+        )
+
+class Handler(metaclass=HandlerMeta):
+    handler_type = None
+
+class FileHandler(Handler):
+    pass
+
+assert HANDLERS["file"] is FileHandler
 ```
 
 ## Installation
@@ -75,9 +127,10 @@ class PluginBase(metaclass=PluginMeta):
 
 **After** (metaclass-registry):
 ```python
-# Just class attributes!
+# One nominal family declaration owns the registry protocol.
 class PluginBase(metaclass=AutoRegisterMeta):
-    __registry_key__ = 'plugin_name'
+    __registry_family__ = RegistryFamily("plugin_name")
+    plugin_name = None
 
 # Access auto-created registry
 PLUGINS = PluginBase.__registry__
@@ -89,7 +142,8 @@ PLUGINS = PluginBase.__registry__
 
 ```python
 class BackendBase(metaclass=AutoRegisterMeta):
-    __registry_key__ = 'backend_type'
+    __registry_family__ = RegistryFamily("backend_type")
+    backend_type = None
 
 class StorageBackend(BackendBase):
     pass  # Inherits BackendBase.__registry__
@@ -103,34 +157,15 @@ assert StorageBackend.__registry__ is BackendBase.__registry__
 
 ### Secondary Registries
 
-```python
-METADATA_HANDLERS = {}
-
-class MicroscopeHandler(metaclass=AutoRegisterMeta):
-    __registry_key__ = 'microscope_type'
-    __secondary_registries__ = [
-        SecondaryRegistry(
-            registry_dict=METADATA_HANDLERS,
-            key_source=PRIMARY_KEY,
-            attr_name='metadata_handler_class'
-        )
-    ]
-```
+Pass ``SecondaryRegistry`` declarations through the family's authoritative
+``RegistryConfig``. Secondary mappings are derived indexes; populate them only
+through registration, never through a second manual registration path.
 
 ### Custom Key Extractors
 
-```python
-def extract_key_from_suffix(cls):
-    """Extract 'foo' from 'FooHandler'."""
-    name = cls.__name__
-    if name.endswith('Handler'):
-        return name[:-7].lower()
-    return None
-
-class Handler(metaclass=AutoRegisterMeta):
-    __registry_key__ = 'handler_type'
-    __key_extractor__ = extract_key_from_suffix
-```
+Set ``RegistryConfig.key_extractor`` when names must be derived. The extractor
+receives ``(class_name, cls)`` and should return the semantic key. Prefer an
+explicit family key attribute when the declaration can own the value directly.
 
 ## Documentation
 
@@ -142,7 +177,9 @@ MIT License - see LICENSE file for details
 
 ## Contributing
 
-Contributions welcome! Please see CONTRIBUTING.md for guidelines.
+Contributions are welcome through the
+[repository](https://github.com/OpenHCSDev/metaclass-registry) and its
+[issue tracker](https://github.com/OpenHCSDev/metaclass-registry/issues).
 
 ## Credits
 

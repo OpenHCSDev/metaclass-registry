@@ -10,10 +10,10 @@ Create a simple plugin system with auto-registration:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
    class PluginBase(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'plugin_name'
+       __registry_family__ = RegistryFamily("plugin_name")
        plugin_name = None
 
        def execute(self):
@@ -46,24 +46,40 @@ Real-world example of a microscope handler registry with secondary registries:
 
    from metaclass_registry import (
        AutoRegisterMeta,
+       RegistryConfig,
        SecondaryRegistry,
        PRIMARY_KEY,
        make_suffix_extractor,
    )
 
-   # Secondary registry for metadata handlers
+   HANDLERS = {}
    METADATA_HANDLERS = {}
-
-   class MicroscopeHandler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'microscope_type'
-       __key_extractor__ = make_suffix_extractor('Handler')
-       __secondary_registries__ = [
+   HANDLER_CONFIG = RegistryConfig(
+       registry_dict=HANDLERS,
+       key_attribute="microscope_type",
+       key_extractor=make_suffix_extractor("Handler"),
+       skip_if_no_key=True,
+       secondary_registries=[
            SecondaryRegistry(
                registry_dict=METADATA_HANDLERS,
                key_source=PRIMARY_KEY,
-               attr_name='metadata_handler_class'
+               attr_name="metadata_handler_class",
            )
-       ]
+       ],
+       registry_name="microscope handler",
+   )
+
+   class MicroscopeHandlerMeta(AutoRegisterMeta):
+       def __new__(mcls, name, bases, namespace):
+           return super().__new__(
+               mcls,
+               name,
+               bases,
+               namespace,
+               registry_config=HANDLER_CONFIG,
+           )
+
+   class MicroscopeHandler(metaclass=MicroscopeHandlerMeta):
        microscope_type = None
        metadata_handler_class = None
 
@@ -91,7 +107,6 @@ Real-world example of a microscope handler registry with secondary registries:
            return f"Reading Operetta image from {path}"
 
    # Use the registries
-   HANDLERS = MicroscopeHandler.__registry__
    print(list(HANDLERS.keys()))  # ['imagexpress', 'operetta']
    print(list(METADATA_HANDLERS.keys()))  # ['imagexpress', 'operetta']
 
@@ -106,11 +121,10 @@ Example of a storage backend registry with inheritance:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
    class StorageBackend(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'backend_type'
-       __skip_if_no_key__ = True
+       __registry_family__ = RegistryFamily("backend_type")
        backend_type = None
 
        def read(self, key):
@@ -169,7 +183,7 @@ Example of using custom key extraction logic:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryConfig
 
    def extract_version(class_name, cls):
        """Extract version from class name like 'V1Handler' -> 'v1'."""
@@ -179,9 +193,26 @@ Example of using custom key extraction logic:
            return f'v{match.group(1)}'
        return None
 
-   class APIHandler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'version'
-       __key_extractor__ = extract_version
+   API_HANDLERS = {}
+   API_HANDLER_CONFIG = RegistryConfig(
+       registry_dict=API_HANDLERS,
+       key_attribute="version",
+       key_extractor=extract_version,
+       skip_if_no_key=True,
+       registry_name="API handler",
+   )
+
+   class APIHandlerMeta(AutoRegisterMeta):
+       def __new__(mcls, name, bases, namespace):
+           return super().__new__(
+               mcls,
+               name,
+               bases,
+               namespace,
+               registry_config=API_HANDLER_CONFIG,
+           )
+
+   class APIHandler(metaclass=APIHandlerMeta):
        version = None
 
        def handle_request(self, request):
@@ -200,11 +231,10 @@ Example of using custom key extraction logic:
            return f"V3: {request}"
 
    # Route based on version
-   HANDLERS = APIHandler.__registry__
-   print(list(HANDLERS.keys()))  # ['v1', 'v2', 'v3']
+   print(list(API_HANDLERS.keys()))  # ['v1', 'v2', 'v3']
 
    def route_request(version, request):
-       handler_class = HANDLERS.get(version)
+       handler_class = API_HANDLERS.get(version)
        if not handler_class:
            raise ValueError(f"Unsupported API version: {version}")
        handler = handler_class()
@@ -219,10 +249,10 @@ Example showing registry inheritance across multiple levels:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
    class BaseProcessor(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'name'
+       __registry_family__ = RegistryFamily("name")
        name = None
 
    class ImageProcessor(BaseProcessor):

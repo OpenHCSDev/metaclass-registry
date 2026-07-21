@@ -3,6 +3,12 @@ Registry Patterns
 
 This guide explains different registry patterns and when to use each one.
 
+For Pattern A, ``RegistryFamily`` is the preferred declaration for a normal
+nominal root. The lower-level ``RegistryConfig`` workflow is appropriate when a
+family needs supplied mappings, derived keys, discovery, or secondary indexes.
+The legacy ``__registry_key__``-style attributes shown in older integrations
+remain supported but should not be copied into new roots.
+
 Pattern A: Metaclass Registry (AutoRegisterMeta)
 -------------------------------------------------
 
@@ -18,10 +24,10 @@ Example
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
    class MicroscopeHandler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'microscope_type'
+       __registry_family__ = RegistryFamily("microscope_type")
        microscope_type = None
 
    class ImageXpressHandler(MicroscopeHandler):
@@ -154,61 +160,14 @@ Comparison Table
 Advanced Pattern A Features
 ----------------------------
 
-Secondary Registries
-~~~~~~~~~~~~~~~~~~~~
+Secondary registries and key extractors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Auto-populate related registries:
-
-.. code-block:: python
-
-   from metaclass_registry import AutoRegisterMeta, SecondaryRegistry, PRIMARY_KEY
-
-   METADATA_HANDLERS = {}
-
-   class MicroscopeHandler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'microscope_type'
-       __secondary_registries__ = [
-           SecondaryRegistry(
-               registry_dict=METADATA_HANDLERS,
-               key_source=PRIMARY_KEY,
-               attr_name='metadata_handler_class'
-           )
-       ]
-       microscope_type = None
-       metadata_handler_class = None
-
-   class ImageXpressHandler(MicroscopeHandler):
-       microscope_type = 'imagexpress'
-       metadata_handler_class = ImageXpressMetadata
-
-   # Primary registration
-   print(MicroscopeHandler.__registry__)  # {'imagexpress': ImageXpressHandler}
-
-   # Secondary registration
-   print(METADATA_HANDLERS)  # {'imagexpress': ImageXpressMetadata}
-
-Custom Key Extractors
-~~~~~~~~~~~~~~~~~~~~~~
-
-Derive keys from class names:
-
-.. code-block:: python
-
-   from metaclass_registry import AutoRegisterMeta
-
-   def extract_microscope_key(class_name, cls):
-       """Extract 'foo' from 'FooHandler'."""
-       if class_name.endswith('Handler'):
-           return class_name[:-7].lower()
-       return None
-
-   class Handler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'handler_type'
-       __key_extractor__ = extract_microscope_key
-       handler_type = None
-
-   class ImageXpressHandler(Handler):
-       pass  # Automatically registered as 'imagexpress'
+Both are advanced ``RegistryConfig`` concerns. Keep the configuration beside
+the domain metaclass that passes it to ``AutoRegisterMeta``. A
+``SecondaryRegistry`` is a projection of primary membership, not another source
+of truth. See :ref:`the explicit RegistryConfig workflow <registryconfig-workflow>`
+in the quick start.
 
 Registry Caching
 ~~~~~~~~~~~~~~~~
@@ -217,15 +176,18 @@ Automatically cache discovered plugins:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict
+   from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict, RegistryFamily
 
    # Enable caching (default)
    class Plugin(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'name'
+       __registry_family__ = RegistryFamily("name")
+       name = None
 
-   # Disable caching
-   registry = LazyDiscoveryDict(enable_cache=False)
-   # ... use in RegistryConfig
+   # Supply a non-caching registry when needed.
+   class TestPlugin(metaclass=AutoRegisterMeta):
+       __registry_family__ = RegistryFamily("name")
+       __registry__ = LazyDiscoveryDict(enable_cache=False)
+       name = None
 
 Migration Guide
 ---------------
@@ -253,10 +215,10 @@ From Custom Metaclass to AutoRegisterMeta
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
    class PluginBase(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'plugin_name'
+       __registry_family__ = RegistryFamily("plugin_name")
        plugin_name = None
 
    PLUGINS = PluginBase.__registry__

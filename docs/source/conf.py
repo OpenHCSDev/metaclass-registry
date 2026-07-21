@@ -2,14 +2,15 @@
 
 import os
 import sys
+from pathlib import Path
 
-sys.path.insert(0, os.path.abspath('../../src'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 # Project information
 project = 'metaclass-registry'
 copyright = '2024, Tristan Simas'
 author = 'Tristan Simas'
-release = '0.1.0'
+release = '0.1.4'
 
 # General configuration
 extensions = [
@@ -26,7 +27,7 @@ exclude_patterns = []
 
 # Options for HTML output
 html_theme = 'sphinx_rtd_theme'
-html_static_path = ['_static']
+html_static_path = []
 
 # Napoleon settings (for Google/NumPy style docstrings)
 napoleon_google_docstring = True

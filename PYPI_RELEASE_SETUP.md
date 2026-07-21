@@ -40,7 +40,7 @@ Creating a GitHub environment adds an extra layer of protection by allowing you 
 
 ### 2.1 Create the Environment
 
-1. Go to your repository settings: https://github.com/trissim/metaclass-registry/settings/environments
+1. Go to your repository settings: https://github.com/OpenHCSDev/metaclass-registry/settings/environments
 2. Click "New environment"
 3. Name it: `pypi`
 4. Configure protection rules (optional):
@@ -63,7 +63,7 @@ git push origin v0.1.0
 
 ## Step 4: Monitor the Release
 
-1. Go to the Actions tab: https://github.com/trissim/metaclass-registry/actions
+1. Go to the Actions tab: https://github.com/OpenHCSDev/metaclass-registry/actions
 2. Watch the "Publish to PyPI" workflow run
 3. Once complete, verify the package on PyPI: https://pypi.org/project/metaclass-registry/
 

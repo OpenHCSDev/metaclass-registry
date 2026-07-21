@@ -26,6 +26,10 @@ Key Features
 * **Secondary Registries**: Auto-populate related registries from primary registry
 * **Persistent Caching**: Cache discovery results across process restarts
 * **Auto-Configuration**: Automatic inference of discovery packages and recursive settings
+* **Nominal Families**: Explicit stable key axes through ``RegistryFamily`` and
+  ``RegistryKeyAttribute``
+* **Registered Enums**: ``RegisteredEnumMeta`` composes enum and registry
+  semantics
 * **Type-Safe**: Full type hints and mypy support
 
 Installation
@@ -40,11 +44,14 @@ Quick Example
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
-   # Define a base class with registry configuration
+   # Declare the nominal family and the attribute that owns its keys.
    class PluginBase(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'plugin_name'
+       __registry_family__ = RegistryFamily(
+           "plugin_name",
+           registry_name="plugin",
+       )
        plugin_name = None
 
    # Access the auto-created registry

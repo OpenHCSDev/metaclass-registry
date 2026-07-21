@@ -1,164 +1,159 @@
-Quick Start Guide
+Quick start guide
 =================
-
-This guide will walk you through creating your first plugin registry with ``metaclass-registry``.
 
 Installation
 ------------
 
-Install via pip:
-
 .. code-block:: bash
 
-   pip install metaclass-registry
+   python -m pip install metaclass-registry
 
-Basic Registry
---------------
+Preferred nominal-family workflow
+---------------------------------
 
-Let's create a simple plugin system:
-
-.. code-block:: python
-
-   from metaclass_registry import AutoRegisterMeta
-
-   # Step 1: Define your base class
-   class PluginBase(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'plugin_name'  # Attribute that contains the key
-       plugin_name = None  # Subclasses will set this
-
-   # Step 2: Access the auto-created registry
-   PLUGINS = PluginBase.__registry__
-
-   # Step 3: Create plugins
-   class EmailPlugin(PluginBase):
-       plugin_name = 'email'
-
-       def send(self, message):
-           print(f"Sending email: {message}")
-
-   class SMSPlugin(PluginBase):
-       plugin_name = 'sms'
-
-       def send(self, message):
-           print(f"Sending SMS: {message}")
-
-   # Step 4: Use the registry
-   print(list(PLUGINS.keys()))  # ['email', 'sms']
-
-   # Get and use a plugin
-   email_plugin = PLUGINS['email']()
-   email_plugin.send("Hello!")  # Sending email: Hello!
-
-Registry Inheritance
---------------------
-
-Child classes automatically inherit the parent's registry:
+Use ``RegistryFamily`` when subclasses register under the value of one semantic
+class attribute. The root owns both the declaration and the resulting registry:
 
 .. code-block:: python
 
-   class BaseBackend(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'backend_type'
-       backend_type = None
+   from metaclass_registry import AutoRegisterMeta, RegistryFamily
 
-   class StorageBackend(BaseBackend):
-       """Storage-specific backend."""
+   class Plugin(metaclass=AutoRegisterMeta):
+       __registry_family__ = RegistryFamily(
+           "plugin_name",
+           registry_name="plugin",
+       )
+       __registry__ = {}  # Local script: no package discovery required.
+       plugin_name = None
+
+   class EmailPlugin(Plugin):
+       plugin_name = "email"
+
+   class SMSPlugin(Plugin):
+       plugin_name = "sms"
+
+   assert Plugin.__registry__["email"] is EmailPlugin
+   assert Plugin.__registry__["sms"] is SMSPlugin
+
+An explicit plain registry is useful for a root declared in a one-file script.
+Package-owned roots can omit ``__registry__`` to receive the library's lazy
+discovery registry, whose package is inferred from the root's module.
+
+``RegistryFamily.skip_if_no_key`` defaults to ``True``, so intermediate classes
+without a key remain members of the nominal hierarchy but are not registry
+entries. Descendants share the root's registry:
+
+.. code-block:: python
+
+   class DeliveryPlugin(Plugin):
        pass
 
-   class ProcessingBackend(BaseBackend):
-       """Processing-specific backend."""
-       pass
+   class PushPlugin(DeliveryPlugin):
+       plugin_name = "push"
 
-   # Both share the same registry!
-   assert StorageBackend.__registry__ is BaseBackend.__registry__
-   assert ProcessingBackend.__registry__ is BaseBackend.__registry__
+   assert DeliveryPlugin.__registry__ is Plugin.__registry__
+   assert Plugin.__registry__["push"] is PushPlugin
 
-   class DiskStorage(StorageBackend):
-       backend_type = 'disk'
-
-   class MemoryStorage(StorageBackend):
-       backend_type = 'memory'
-
-   # All in the same registry
-   print(list(BaseBackend.__registry__.keys()))  # ['disk', 'memory']
-
-Custom Key Extraction
----------------------
-
-Use a function to derive keys from class names:
+Use ``RegistryKeyAttribute`` when the key axis is one of the library's shared
+vocabulary values:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta, make_suffix_extractor
+   from metaclass_registry import RegistryKeyAttribute
 
-   class Handler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'handler_type'
-       __key_extractor__ = make_suffix_extractor('Handler')
-       handler_type = None  # Optional when using extractor
+   class Strategy(metaclass=AutoRegisterMeta):
+       __registry_family__ = RegistryFamily(
+           RegistryKeyAttribute.STRATEGY_LABEL,
+           registry_name="strategy",
+       )
+       strategy_label = None
 
-   class ImageXpressHandler(Handler):
-       pass  # handler_type will be 'imagexpress'
+The low-level attributes ``__registry_key__``, ``__skip_if_no_key__``, and
+``__registry_name__`` remain compatibility and introspection surfaces. New
+ordinary roots should declare a ``RegistryFamily`` instead of repeating those
+attributes manually.
 
-   class OperettaHandler(Handler):
-       pass  # handler_type will be 'operetta'
+.. _registryconfig-workflow:
 
-   print(list(Handler.__registry__.keys()))  # ['imagexpress', 'operetta']
+Explicit RegistryConfig workflow
+--------------------------------
 
-Skip Registration
------------------
-
-Control which classes get registered:
-
-.. code-block:: python
-
-   class OptionalPlugin(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'name'
-       __skip_if_no_key__ = True  # Don't error if name is None
-       name = None
-
-   class RegisteredPlugin(OptionalPlugin):
-       name = 'registered'  # Will be registered
-
-   class UnregisteredPlugin(OptionalPlugin):
-       pass  # name=None, will be skipped
-
-   print(list(OptionalPlugin.__registry__.keys()))  # ['registered']
-
-Secondary Registries
---------------------
-
-Auto-populate related registries:
+Use ``RegistryConfig`` when registration requires an externally supplied
+registry, derived keys, lazy discovery, secondary registries, or custom logging.
+A thin domain metaclass passes the one authoritative configuration to
+``AutoRegisterMeta``:
 
 .. code-block:: python
 
-   from metaclass_registry import SecondaryRegistry, PRIMARY_KEY
+   from metaclass_registry import (
+       AutoRegisterMeta,
+       RegistryConfig,
+       make_suffix_extractor,
+   )
 
-   METADATA_HANDLERS = {}
+   HANDLERS = {}
+   HANDLER_CONFIG = RegistryConfig(
+       registry_dict=HANDLERS,
+       key_attribute="handler_type",
+       key_extractor=make_suffix_extractor("Handler"),
+       skip_if_no_key=True,
+       registry_name="handler",
+   )
 
-   class MicroscopeHandler(metaclass=AutoRegisterMeta):
-       __registry_key__ = 'microscope_type'
-       __secondary_registries__ = [
-           SecondaryRegistry(
-               registry_dict=METADATA_HANDLERS,
-               key_source=PRIMARY_KEY,
-               attr_name='metadata_handler_class'
+   class HandlerMeta(AutoRegisterMeta):
+       def __new__(mcls, name, bases, namespace):
+           return super().__new__(
+               mcls,
+               name,
+               bases,
+               namespace,
+               registry_config=HANDLER_CONFIG,
            )
-       ]
-       microscope_type = None
-       metadata_handler_class = None
 
-   class ImageXpressHandler(MicroscopeHandler):
-       microscope_type = 'imagexpress'
-       metadata_handler_class = ImageXpressMetadata
+   class Handler(metaclass=HandlerMeta):
+       handler_type = None
 
-   # Primary registration
-   print(MicroscopeHandler.__registry__)  # {'imagexpress': ImageXpressHandler}
+   class ImageHandler(Handler):
+       pass
 
-   # Secondary registration
-   print(METADATA_HANDLERS)  # {'imagexpress': ImageXpressMetadata}
+   assert HANDLERS["image"] is ImageHandler
 
-Next Steps
+Secondary registries are derived indexes
+----------------------------------------
+
+Keep semantic membership in the primary registry. A ``SecondaryRegistry``
+projects another class attribute under either the primary key or another named
+attribute:
+
+.. code-block:: python
+
+   from metaclass_registry import PRIMARY_KEY, SecondaryRegistry
+
+   METADATA_TYPES = {}
+
+   class ImageMetadata:
+       pass
+
+   CONFIG = RegistryConfig(
+       registry_dict=HANDLERS,
+       key_attribute="handler_type",
+       skip_if_no_key=True,
+       secondary_registries=[
+           SecondaryRegistry(
+               registry_dict=METADATA_TYPES,
+               key_source=PRIMARY_KEY,
+               attr_name="metadata_type",
+           )
+       ],
+       registry_name="handler",
+   )
+
+The supplied configuration is the authority for both indexes; do not manually
+populate a second mapping with copied keys.
+
+Next steps
 ----------
 
-* Learn about :doc:`patterns`
-* Explore the :doc:`api`
-* Check out more :doc:`examples`
+* See :doc:`api` for exact signatures.
+* See :doc:`patterns` for registry selection guidance.
+* See :doc:`examples` for discovery and caching examples.
