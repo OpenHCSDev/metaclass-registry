@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "metaclass-registry"
-version = "0.1.4"
+version = "0.1.5"
 description = "Zero-boilerplate metaclass-driven plugin registry system with lazy discovery and caching"
 authors = [{name = "Tristan Simas", email = "tristan.simas@mail.mcgill.ca"}]
 license = {text = "MIT"}
