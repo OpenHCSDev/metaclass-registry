@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 project = 'metaclass-registry'
 copyright = '2024, Tristan Simas'
 author = 'Tristan Simas'
-release = '0.1.5'
+release = '0.1.6'
 
 # General configuration
 extensions = [
