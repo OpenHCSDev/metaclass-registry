@@ -346,9 +346,18 @@ def deserialize_plugin_class(data: Dict[str, Any]) -> type:
     """
     import importlib
     
-    module = importlib.import_module(data['module'])
-    plugin_class = getattr(module, data['class_name'])
-    return plugin_class
+    declaration: Any = importlib.import_module(data['module'])
+    for owner_name in data['qualname'].split('.'):
+        if owner_name == '<locals>':
+            raise AttributeError(
+                "Function-local classes cannot be restored from a registry cache"
+            )
+        declaration = getattr(declaration, owner_name)
+    if not isinstance(declaration, type):
+        raise TypeError(
+            f"Cached plugin declaration {data['qualname']!r} is not a class"
+        )
+    return declaration
 
 
 def get_package_file_mtimes(package_path: str) -> Dict[str, float]:

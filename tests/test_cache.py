@@ -18,6 +18,15 @@ from metaclass_registry.cache import (
 )
 
 
+class NestedPluginOwner:
+    class NestedPlugin:
+        pass
+
+
+class RoundtripPlugin:
+    pass
+
+
 class TestGetCacheFilePath:
     """Test get_cache_file_path function."""
 
@@ -101,21 +110,19 @@ class TestSerializeDeserializePluginClass:
         result = deserialize_plugin_class(data)
         assert result is dict
 
+    def test_deserialize_nested_class_uses_qualified_name(self):
+        """Nested registered classes restore through their declaration owner."""
+        data = serialize_plugin_class(NestedPluginOwner.NestedPlugin)
+
+        assert data["class_name"] == "NestedPlugin"
+        assert data["qualname"] == "NestedPluginOwner.NestedPlugin"
+        assert deserialize_plugin_class(data) is NestedPluginOwner.NestedPlugin
+
     def test_serialize_deserialize_roundtrip(self):
         """Test serializing and deserializing a class."""
-
-        class RoundtripPlugin:
-            pass
-
-        # Put class in module namespace so it can be found
-        globals()['RoundtripPlugin'] = RoundtripPlugin
-
-        try:
-            data = serialize_plugin_class(RoundtripPlugin)
-            result = deserialize_plugin_class(data)
-            assert result is RoundtripPlugin
-        finally:
-            del globals()['RoundtripPlugin']
+        data = serialize_plugin_class(RoundtripPlugin)
+        result = deserialize_plugin_class(data)
+        assert result is RoundtripPlugin
 
 
 class TestGetPackageFileMtimes:
