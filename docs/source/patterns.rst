@@ -163,8 +163,8 @@ Advanced Pattern A Features
 Secondary registries and key extractors
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Both are advanced ``RegistryConfig`` concerns. Keep the configuration beside
-the domain metaclass that passes it to ``AutoRegisterMeta``. A
+Both are advanced ``RegistryConfig`` concerns. Keep the configuration on the
+nominal root as ``__registry_config__``. A
 ``SecondaryRegistry`` is a projection of primary membership, not another source
 of truth. See :ref:`the explicit RegistryConfig workflow <registryconfig-workflow>`
 in the quick start.
@@ -172,21 +172,29 @@ in the quick start.
 Registry Caching
 ~~~~~~~~~~~~~~~~
 
-Automatically cache discovered plugins:
+Cache explicitly discovered plugins:
 
 .. code-block:: python
 
-   from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict, RegistryFamily
+   from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict, RegistryConfig
 
-   # Enable caching (default)
+   # Discovery and its persistent cache are explicit root-owned behavior.
    class Plugin(metaclass=AutoRegisterMeta):
-       __registry_family__ = RegistryFamily("name")
+       __registry_config__ = RegistryConfig(
+           registry_dict=LazyDiscoveryDict(),
+           key_attribute="name",
+           discovery_package="my_plugins",
+           discovery_recursive=False,
+       )
        name = None
 
-   # Supply a non-caching registry when needed.
+   # Disable the persistent cache while retaining explicit discovery when needed.
    class TestPlugin(metaclass=AutoRegisterMeta):
-       __registry_family__ = RegistryFamily("name")
-       __registry__ = LazyDiscoveryDict(enable_cache=False)
+       __registry_config__ = RegistryConfig(
+           registry_dict=LazyDiscoveryDict(enable_cache=False),
+           key_attribute="name",
+           discovery_package="test_plugins",
+       )
        name = None
 
 Migration Guide

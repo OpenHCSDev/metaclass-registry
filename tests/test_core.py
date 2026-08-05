@@ -353,6 +353,88 @@ class TestAutoConfiguration:
         assert hasattr(MyPlugin, '__registry__')
         assert isinstance(MyPlugin.__registry__, LazyDiscoveryDict)
 
+    def test_implicit_registry_does_not_infer_package_discovery(self, monkeypatch):
+        """In-module roots never scan a package without an owner declaration."""
+
+        def unexpected_discovery(*args, **kwargs):
+            raise AssertionError("implicit registry attempted package discovery")
+
+        monkeypatch.setattr(
+            "metaclass_registry.discovery.discover_registry_classes",
+            unexpected_discovery,
+        )
+
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_family__ = RegistryFamily("name")
+            name = None
+
+        class ImportedPlugin(Plugin):
+            name = "imported"
+
+        assert Plugin.__registry__._config.discovery_package is None
+        assert Plugin.__registry__["imported"] is ImportedPlugin
+
+    def test_nominal_registry_config_owns_root_and_exact_class_identity(self):
+        """A root-owned config supplies registration and discovery semantics once."""
+
+        registry = LazyDiscoveryDict(enable_cache=False)
+        config = RegistryConfig(
+            registry_dict=registry,
+            key_attribute="name",
+            skip_if_no_key=True,
+            registry_name="configured plugin",
+        )
+
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_config__ = config
+            name = None
+
+        class ConfiguredPlugin(Plugin):
+            name = "configured"
+
+        assert Plugin.__registry_config__ is config
+        assert Plugin.__registry__ is registry
+        assert "__registry_key__" not in Plugin.__dict__
+        assert ConfiguredPlugin.__registry_config__ is config
+        assert Plugin.__registry__["configured"] is ConfiguredPlugin
+
+    def test_nominal_registry_config_compares_registry_authority_by_identity(self):
+        """Equal registry mappings are not interchangeable semantic authorities."""
+
+        configured_registry = LazyDiscoveryDict(enable_cache=False)
+        config = RegistryConfig(
+            registry_dict=configured_registry,
+            key_attribute="name",
+        )
+
+        with pytest.raises(ValueError, match="must be the registry owned"):
+
+            class Plugin(metaclass=AutoRegisterMeta):
+                __registry_config__ = config
+                __registry__ = LazyDiscoveryDict(enable_cache=False)
+
+    def test_nominal_registry_config_rejects_ambiguous_multiple_inheritance(self):
+        """One class cannot inherit two unrelated registry ownership roots."""
+
+        class Left(metaclass=AutoRegisterMeta):
+            __registry_config__ = RegistryConfig(
+                registry_dict=LazyDiscoveryDict(enable_cache=False),
+                key_attribute="left_name",
+                skip_if_no_key=True,
+            )
+
+        class Right(metaclass=AutoRegisterMeta):
+            __registry_config__ = RegistryConfig(
+                registry_dict=LazyDiscoveryDict(enable_cache=False),
+                key_attribute="right_name",
+                skip_if_no_key=True,
+            )
+
+        with pytest.raises(TypeError, match="multiple registry configuration"):
+
+            class Ambiguous(Left, Right):
+                pass
+
     def test_registered_enum_meta_registers_enum_leaves(self):
         """Test enum families can also use AutoRegisterMeta registration."""
 

@@ -80,8 +80,7 @@ Explicit RegistryConfig workflow
 
 Use ``RegistryConfig`` when registration requires an externally supplied
 registry, derived keys, lazy discovery, secondary registries, or custom logging.
-A thin domain metaclass passes the one authoritative configuration to
-``AutoRegisterMeta``:
+The nominal root owns the one authoritative configuration:
 
 .. code-block:: python
 
@@ -100,17 +99,8 @@ A thin domain metaclass passes the one authoritative configuration to
        registry_name="handler",
    )
 
-   class HandlerMeta(AutoRegisterMeta):
-       def __new__(mcls, name, bases, namespace):
-           return super().__new__(
-               mcls,
-               name,
-               bases,
-               namespace,
-               registry_config=HANDLER_CONFIG,
-           )
-
-   class Handler(metaclass=HandlerMeta):
+   class Handler(metaclass=AutoRegisterMeta):
+       __registry_config__ = HANDLER_CONFIG
        handler_type = None
 
    class ImageHandler(Handler):

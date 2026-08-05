@@ -25,7 +25,7 @@ class ZarrBackend(StorageBackend):
     _backend_type = "zarr"
 ```
 
-The class is now discoverable via `StorageBackend.__registry__["zarr"]`. The library handles lazy discovery (plugins aren't imported until the registry is accessed), disk caching with version and mtime validation, thread-safe access, secondary registries for related metadata, and automatic key extraction from class names.
+The class is now discoverable via `StorageBackend.__registry__["zarr"]`. When the nominal root explicitly declares a discovery package, the library handles lazy discovery (plugins aren't imported until the registry is accessed), disk caching with version and source-inventory validation, thread-safe access, secondary registries for related metadata, and automatic key extraction from class names.
 
 # Statement of Need
 
@@ -64,18 +64,18 @@ The base class declares registry configuration via class attributes:
 
 ```python
 class BackendBase(metaclass=AutoRegisterMeta):
-    __registry_key__ = '_backend_type'
     __registry_config__ = RegistryConfig(
         registry_dict=LazyDiscoveryDict(),
+        key_attribute='_backend_type',
         discovery_package='openhcs.io',
     )
 ```
 
 When Python processes a subclass definition, `AutoRegisterMeta.__new__` extracts the key from the `_backend_type` attribute and inserts the class into the registry. Abstract classes (with unimplemented abstract methods) are skipped.
 
-**Lazy discovery** defers plugin imports until first registry access. `LazyDiscoveryDict` overrides `__getitem__`, `__contains__`, and iteration methods to trigger `pkgutil.iter_modules` scanning on first use. Results are cached to `~/.cache/metaclass-registry/` with version validation and file modification time checking—subsequent application starts load from cache without re-scanning.
+**Lazy discovery** defers plugin imports until first registry access when the nominal root's `RegistryConfig` declares a `discovery_package`. `LazyDiscoveryDict` overrides `__getitem__`, `__contains__`, and iteration methods to trigger `pkgutil.iter_modules` scanning on first use. Results are cached to `~/.cache/metaclass-registry/` with version and source-inventory validation—subsequent application starts load exact imported class declarations from cache without re-scanning. Roots without an explicit discovery package register only declarations imported by the application.
 
-**Example**: An OpenHCS application with 40 storage backends doesn't import all 40 at startup. When the user selects "Zarr" from the UI, the registry is accessed, lazy discovery scans the `openhcs.io` package, imports only the Zarr backend, and caches the result. On the next application start, the cache is used instead of re-scanning. If a developer adds a new backend, the cache is invalidated (via mtime checking) and the scan runs again.
+**Example**: An OpenHCS application with 40 storage backends doesn't import their modules while constructing the registry root. When the registry is first accessed, lazy discovery scans the declared `openhcs.io` package, imports its plugin modules, and caches the resulting class identities. On the next application start, the cache imports the recorded declarations directly instead of scanning. If a developer adds, modifies, or removes a discoverable backend source, source-inventory validation invalidates the cache and discovery runs again.
 
 **Secondary registries** handle related metadata. A microscope handler registers both itself and its metadata parser:
 

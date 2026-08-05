@@ -153,7 +153,8 @@ class RegistryCacheManager(Generic[T]):
         version_getter: Callable[[], str],
         serializer: Callable[[T], Dict[str, Any]],
         deserializer: Callable[[Dict[str, Any]], T],
-        config: Optional[CacheConfig] = None
+        config: Optional[CacheConfig] = None,
+        file_mtimes_getter: Optional[Callable[[], Dict[str, float]]] = None,
     ):
         """
         Initialize cache manager.
@@ -164,12 +165,16 @@ class RegistryCacheManager(Generic[T]):
             serializer: Function to serialize item to JSON-compatible dict
             deserializer: Function to deserialize dict back to item
             config: Optional cache configuration
+            file_mtimes_getter: Optional authoritative inventory of source files used by
+                discovery. When provided, added files invalidate the cache as well as
+                modified and removed files.
         """
         self.cache_name = cache_name
         self.version_getter = version_getter
         self.serializer = serializer
         self.deserializer = deserializer
         self.config = config or CacheConfig()
+        self.file_mtimes_getter = file_mtimes_getter
         self._cache_path = get_cache_file_path(f"{cache_name}.json")
     
     def load_cache(self) -> Optional[Dict[str, T]]:
@@ -217,7 +222,15 @@ class RegistryCacheManager(Generic[T]):
         
         # Validate file mtimes if configured
         if self.config.check_mtimes and 'file_mtimes' in cache_data:
-            if not self._validate_mtimes(cache_data['file_mtimes']):
+            current_mtimes = (
+                self.file_mtimes_getter()
+                if self.file_mtimes_getter is not None
+                else None
+            )
+            if not self._validate_mtimes(
+                cache_data['file_mtimes'],
+                current_mtimes=current_mtimes,
+            ):
                 logger.debug(f"File modifications detected for {self.cache_name}")
                 return None
         
@@ -289,22 +302,36 @@ class RegistryCacheManager(Generic[T]):
             self._cache_path.unlink()
             logger.info(f"🧹 Cleared {self.cache_name} cache")
     
-    def _validate_mtimes(self, cached_mtimes: Dict[str, float]) -> bool:
+    def _validate_mtimes(
+        self,
+        cached_mtimes: Dict[str, float],
+        *,
+        current_mtimes: Optional[Dict[str, float]] = None,
+    ) -> bool:
         """
         Validate that file modification times haven't changed.
         
         Args:
             cached_mtimes: Dictionary of file paths to cached mtimes
+            current_mtimes: Optional complete current inventory. When present, its paths
+                must exactly match the cached discovery inventory.
             
         Returns:
             True if all mtimes match, False if any file changed
         """
+        if current_mtimes is not None and current_mtimes.keys() != cached_mtimes.keys():
+            return False
+
         for file_path, cached_mtime in cached_mtimes.items():
             path = Path(file_path)
             if not path.exists():
                 return False  # File was deleted
-            
-            current_mtime = path.stat().st_mtime
+
+            current_mtime = (
+                current_mtimes[file_path]
+                if current_mtimes is not None
+                else path.stat().st_mtime
+            )
             if abs(current_mtime - cached_mtime) > 1.0:  # 1 second tolerance
                 return False  # File was modified
         
@@ -360,12 +387,17 @@ def deserialize_plugin_class(data: Dict[str, Any]) -> type:
     return declaration
 
 
-def get_package_file_mtimes(package_path: str) -> Dict[str, float]:
+def get_package_file_mtimes(
+    package_path: str,
+    *,
+    recursive: bool = True,
+) -> Dict[str, float]:
     """
     Get modification times for all Python files in a package.
     
     Args:
         package_path: Package path (e.g., "openhcs.microscopes")
+        recursive: Whether nested package files participate in discovery.
         
     Returns:
         Dictionary mapping file paths to modification times
@@ -391,9 +423,13 @@ def get_package_file_mtimes(package_path: str) -> Dict[str, float]:
 
         mtimes = {}
         for package_dir in package_dirs:
-            for py_file in package_dir.rglob("*.py"):
-                if not py_file.name.startswith('_'):  # Skip __pycache__, etc.
-                    mtimes[str(py_file)] = py_file.stat().st_mtime
+            source_files = (
+                package_dir.rglob("*.py")
+                if recursive
+                else package_dir.glob("*.py")
+            )
+            for py_file in source_files:
+                mtimes[str(py_file)] = py_file.stat().st_mtime
         
         return mtimes
     except Exception as e:

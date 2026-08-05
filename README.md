@@ -15,7 +15,7 @@
 - **Registry Inheritance**: Child classes inherit parent's registry for clean interface hierarchies
 - **Secondary Registries**: Auto-populate related registries from primary registry
 - **Persistent Caching**: Cache discovery results across process restarts
-- **Auto-Configuration**: Automatic inference of discovery packages and recursive settings
+- **Explicit Discovery**: Package scans occur only when the nominal root declares them
 - **Nominal Registry Families**: Stable key-axis declarations with
   ``RegistryFamily`` and ``RegistryKeyAttribute``
 - **Registered Enums**: ``RegisteredEnumMeta`` for enum members backed by a
@@ -56,8 +56,9 @@ print(plugin.run())  # "Hello from my plugin!"
 It installs the compatibility attributes used by ``AutoRegisterMeta`` while
 keeping the key axis in one object. Consumers should iterate or query
 ``PluginBase.__registry__`` rather than maintain a parallel plugin mapping.
-The explicit plain registry is appropriate for this one-file example. A root
-declared in an importable package can omit it to use lazy package discovery.
+The explicit plain registry is appropriate for this one-file example. Ordinary roots
+register declarations as their modules are imported; package discovery is opt-in through
+``RegistryConfig.discovery_package``.
 
 Use ``RegistryConfig`` when a family needs a supplied registry, a key extractor,
 lazy discovery, secondary registries, or custom logging:
@@ -78,17 +79,8 @@ HANDLER_CONFIG = RegistryConfig(
     registry_name="handler",
 )
 
-class HandlerMeta(AutoRegisterMeta):
-    def __new__(mcls, name, bases, namespace):
-        return super().__new__(
-            mcls,
-            name,
-            bases,
-            namespace,
-            registry_config=HANDLER_CONFIG,
-        )
-
-class Handler(metaclass=HandlerMeta):
+class Handler(metaclass=AutoRegisterMeta):
+    __registry_config__ = HANDLER_CONFIG
     handler_type = None
 
 class FileHandler(Handler):
@@ -96,6 +88,28 @@ class FileHandler(Handler):
 
 assert HANDLERS["file"] is FileHandler
 ```
+
+### Package discovery
+
+Package discovery is explicit in 0.2.0. A nominal root that must discover declarations
+which are not otherwise imported owns that behavior directly:
+
+```python
+from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict, RegistryConfig
+
+class Plugin(metaclass=AutoRegisterMeta):
+    __registry_config__ = RegistryConfig(
+        registry_dict=LazyDiscoveryDict(),
+        key_attribute="plugin_name",
+        discovery_package="my_application.plugins",
+        discovery_recursive=False,
+    )
+    plugin_name = None
+```
+
+Use ``discovery_recursive=True`` only when plugin declarations live in subpackages.
+Without ``discovery_package``, the registry contains declarations imported by the
+application and never scans the surrounding package implicitly.
 
 ## Installation
 

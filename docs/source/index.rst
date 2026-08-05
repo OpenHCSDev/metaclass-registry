@@ -25,7 +25,7 @@ Key Features
 * **Registry Inheritance**: Child classes inherit parent's registry for clean interface hierarchies
 * **Secondary Registries**: Auto-populate related registries from primary registry
 * **Persistent Caching**: Cache discovery results across process restarts
-* **Auto-Configuration**: Automatic inference of discovery packages and recursive settings
+* **Explicit Discovery**: Package scans occur only when the nominal root declares them
 * **Nominal Families**: Explicit stable key axes through ``RegistryFamily`` and
   ``RegistryKeyAttribute``
 * **Registered Enums**: ``RegisteredEnumMeta`` composes enum and registry

@@ -5,7 +5,7 @@ This package provides a generic metaclass infrastructure for automatic plugin
 registration with lazy discovery, caching, and zero boilerplate.
 """
 
-__version__ = "0.1.6"
+__version__ = "0.2.0rc1"
 
 from .core import (
     AutoRegisterMeta,

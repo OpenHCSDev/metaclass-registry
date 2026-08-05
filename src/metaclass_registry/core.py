@@ -35,10 +35,11 @@ Architecture:
 ------------
 AutoRegisterMeta uses a configuration-driven approach:
 1. RegistryConfig defines registration behavior
-2. AutoRegisterMeta applies the configuration during class creation
-3. Domain-specific metaclasses provide thin wrappers with their config
+2. The nominal registry root owns that configuration as ``__registry_config__``
+3. AutoRegisterMeta applies the configuration during class creation
 
-This maintains domain-specific features while eliminating duplication.
+This keeps domain semantics on their nominal owner while eliminating duplicated
+metaclass wrappers and caller-side discovery inference.
 """
 
 import importlib
@@ -187,7 +188,8 @@ class LazyDiscoveryDict(dict):
                     config=cache_utils['CacheConfig'](
                         max_age_days=7,
                         check_mtimes=True  # Validate file modifications
-                    )
+                    ),
+                    file_mtimes_getter=self._get_discovery_file_mtimes,
                 )
             except Exception as e:
                 logger.debug(f"Failed to initialize cache manager: {e}")
@@ -209,6 +211,16 @@ class LazyDiscoveryDict(dict):
         except:
             pass
         return "unknown"
+
+    def _get_discovery_file_mtimes(self) -> dict[str, float]:
+        """Return the complete source inventory for this discovery package."""
+
+        if not self._discovery_package:
+            return {}
+        return self.cache_components()['get_package_file_mtimes'](
+            self._discovery_package,
+            recursive=self._config.discovery_recursive,
+        )
 
     def _discover(self) -> None:
         """
@@ -277,10 +289,7 @@ class LazyDiscoveryDict(dict):
                 # Save to cache if enabled
                 if self._cache_manager:
                     try:
-                        cache_utils = self.cache_components()
-                        file_mtimes = cache_utils['get_package_file_mtimes'](
-                            self._config.discovery_package
-                        )
+                        file_mtimes = self._get_discovery_file_mtimes()
                         self._cache_manager.save_cache(dict(self), file_mtimes)
                     except Exception as e:
                         logger.debug(f"Failed to save cache for {self._config.registry_name}: {e}")
@@ -423,7 +432,9 @@ class RegistryConfig:
         secondary_registries: Optional list of secondary registry configurations
         log_registration: If True, log debug message when class is registered
         registry_name: Human-readable name for logging (e.g., 'microscope handler')
-        discovery_package: Optional package name to auto-discover (e.g., 'openhcs.microscopes')
+        discovery_package: Explicit package name to auto-discover (e.g.,
+                           'openhcs.microscopes'). ``None`` keeps registration local to
+                           declarations imported by the application.
         discovery_recursive: If True, use recursive discovery (default: False)
 
     Examples:
@@ -467,10 +478,9 @@ class RegistryConfig:
     secondary_registries: Optional[list[SecondaryRegistry]] = None
     log_registration: bool = True
     registry_name: str = "plugin"
-    discovery_package: Optional[str] = None  # Auto-inferred from base class module if None
+    discovery_package: Optional[str] = None
     discovery_recursive: bool = False
     discovery_function: Optional[Callable] = None  # Custom discovery function
-
 
 class AutoRegisterMeta(ABCMeta):
     """
@@ -522,11 +532,58 @@ class AutoRegisterMeta(ABCMeta):
             The newly created class
         """
         registry_family = attrs.get('__registry_family__')
+        declared_registry_config = attrs.get('__registry_config__')
+        if declared_registry_config is not None:
+            if not isinstance(declared_registry_config, RegistryConfig):
+                raise TypeError("__registry_config__ must be a RegistryConfig")
+            if (
+                registry_config is not None
+                and registry_config is not declared_registry_config
+            ):
+                raise ValueError(
+                    "Registry configuration must have one authoritative declaration"
+                )
+            registry_config = declared_registry_config
+        elif registry_config is None:
+            inherited_registry_configs = []
+            for base in bases:
+                inherited_registry_config = getattr(
+                    base,
+                    '__registry_config__',
+                    None,
+                )
+                if not isinstance(inherited_registry_config, RegistryConfig):
+                    continue
+                if all(
+                    inherited_registry_config is not existing_config
+                    for existing_config in inherited_registry_configs
+                ):
+                    inherited_registry_configs.append(inherited_registry_config)
+            if len(inherited_registry_configs) > 1:
+                raise TypeError(
+                    f"{name} inherits multiple registry configuration authorities"
+                )
+            registry_config = (
+                inherited_registry_configs[0]
+                if inherited_registry_configs
+                else None
+            )
 
         # Create the class using ABCMeta
         new_class = super().__new__(mcs, name, bases, attrs)
         if isinstance(registry_family, RegistryFamily):
             registry_family.apply_to_class(new_class, attrs)
+        if declared_registry_config is not None:
+            declared_registry = attrs.get('__registry__')
+            if (
+                '__registry__' in attrs
+                and declared_registry is not declared_registry_config.registry_dict
+            ):
+                raise ValueError(
+                    f"{name}.__registry__ must be the registry owned by "
+                    "its __registry_config__"
+                )
+            new_class.__registry__ = declared_registry_config.registry_dict
 
         # Auto-configure registry if not provided but class has __registry__ attributes
         if registry_config is None:
@@ -536,49 +593,11 @@ class AutoRegisterMeta(ABCMeta):
 
         # Set up lazy discovery if registry dict supports it (only once for base class)
         if isinstance(registry_config.registry_dict, LazyDiscoveryDict) and not registry_config.registry_dict._config:
-            from dataclasses import replace
-
-            # Auto-infer discovery_package from base class module if not specified
             config = registry_config
-            if config.discovery_package is None:
-                # Extract package from base class module (e.g., 'openhcs.microscopes.microscope_base' → 'openhcs.microscopes')
-                module_parts = new_class.__module__.rsplit('.', 1)
-                inferred_package = module_parts[0] if len(module_parts) > 1 else new_class.__module__
-                # Create new config with inferred package
-                config = replace(config, discovery_package=inferred_package)
-                logger.debug(f"Auto-inferred discovery_package='{inferred_package}' from {new_class.__module__}")
-
-            # Auto-infer discovery_recursive based on package structure
-            # Check if package has subdirectories with __init__.py (indicating nested structure)
-            if config.discovery_package:
-                try:
-                    pkg = importlib.import_module(config.discovery_package)
-                    if hasattr(pkg, '__path__'):
-                        import os
-                        has_subpackages = False
-                        for path in pkg.__path__:
-                            if os.path.isdir(path):
-                                # Check if any subdirectories contain __init__.py
-                                for entry in os.listdir(path):
-                                    subdir = os.path.join(path, entry)
-                                    if os.path.isdir(subdir) and os.path.exists(os.path.join(subdir, '__init__.py')):
-                                        has_subpackages = True
-                                        break
-                            if has_subpackages:
-                                break
-
-                        # Only override if discovery_recursive is still at default (False)
-                        # This allows explicit overrides to take precedence
-                        if has_subpackages and not config.discovery_recursive:
-                            config = replace(config, discovery_recursive=True)
-                            logger.debug(f"Auto-inferred discovery_recursive=True for '{config.discovery_package}' (has subpackages)")
-                        elif not has_subpackages and config.discovery_recursive:
-                            logger.debug(f"Keeping explicit discovery_recursive=True for '{config.discovery_package}' (no subpackages detected)")
-                except Exception as e:
-                    logger.debug(f"Failed to auto-infer discovery_recursive: {e}")
 
             # Auto-wrap secondary registries with SecondaryRegistryDict
             if config.secondary_registries:
+                from dataclasses import replace
                 import sys
                 wrapped_secondaries = []
                 module = sys.modules.get(new_class.__module__)

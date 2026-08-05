@@ -165,6 +165,41 @@ class TestGetPackageFileMtimes:
         mtimes = get_package_file_mtimes('nonexistent.package')
         assert mtimes == {}
 
+    def test_nonrecursive_inventory_excludes_nested_sources(self, tmp_path):
+        """Cache inventory follows the discovery recursion declared by its owner."""
+
+        import importlib
+        import sys
+
+        package_dir = tmp_path / "test_nonrecursive_mtime_pkg"
+        nested_dir = package_dir / "nested"
+        nested_dir.mkdir(parents=True)
+        (package_dir / "__init__.py").write_text("# init")
+        (package_dir / "plugin.py").write_text("# plugin")
+        (nested_dir / "__init__.py").write_text("# nested init")
+        nested_source = nested_dir / "nested_plugin.py"
+        nested_source.write_text("# nested plugin")
+
+        sys.path.insert(0, str(tmp_path))
+        try:
+            importlib.import_module("test_nonrecursive_mtime_pkg")
+
+            nonrecursive = get_package_file_mtimes(
+                "test_nonrecursive_mtime_pkg",
+                recursive=False,
+            )
+            recursive = get_package_file_mtimes(
+                "test_nonrecursive_mtime_pkg",
+                recursive=True,
+            )
+
+            assert str(package_dir / "plugin.py") in nonrecursive
+            assert str(nested_source) not in nonrecursive
+            assert str(nested_source) in recursive
+        finally:
+            sys.path.remove(str(tmp_path))
+            sys.modules.pop("test_nonrecursive_mtime_pkg", None)
+
 
 class TestRegistryCacheManager:
     """Test RegistryCacheManager class."""
@@ -295,6 +330,39 @@ class TestRegistryCacheManager:
             # Try to load - should be None due to mtime mismatch
             loaded = manager.load_cache()
             assert loaded is None
+
+    def test_cache_source_inventory_invalidates_when_file_is_added(self, tmp_path):
+        """A newly discoverable source file invalidates a persistent registry cache."""
+
+        source_dir = tmp_path / "sources"
+        source_dir.mkdir()
+        existing_source = source_dir / "existing.py"
+        existing_source.write_text("# existing")
+
+        def current_inventory():
+            return {
+                str(source_file): source_file.stat().st_mtime
+                for source_file in source_dir.glob("*.py")
+            }
+
+        with patch.dict('os.environ', {'XDG_CACHE_HOME': str(tmp_path / 'cache')}):
+            manager = RegistryCacheManager(
+                cache_name='test_source_inventory',
+                version_getter=lambda: '1.0',
+                serializer=lambda x: {'value': x},
+                deserializer=lambda x: x['value'],
+                config=CacheConfig(check_mtimes=True),
+                file_mtimes_getter=current_inventory,
+            )
+            manager.save_cache(
+                {'key': 'value'},
+                file_mtimes=current_inventory(),
+            )
+            assert manager.load_cache() == {'key': 'value'}
+
+            (source_dir / "new_plugin.py").write_text("# newly discoverable")
+
+            assert manager.load_cache() is None
 
     def test_clear_cache(self, tmp_path):
         """Test clearing the cache."""
