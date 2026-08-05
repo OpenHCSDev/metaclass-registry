@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0rc1
+## 0.2.0
 
 - Make package discovery an explicit nominal-root declaration. Ordinary
   `AutoRegisterMeta` registries now contain classes imported by the application and do
