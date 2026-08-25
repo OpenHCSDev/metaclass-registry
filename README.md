@@ -6,7 +6,7 @@
 [![Documentation Status](https://readthedocs.org/projects/metaclass-registry/badge/?version=latest)](https://metaclass-registry.readthedocs.io/en/latest/?badge=latest)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage](https://raw.githubusercontent.com/OpenHCSDev/metaclass-registry/main/.github/badges/coverage.svg)](https://openhcsdev.github.io/metaclass-registry/coverage/)
+[![Coverage](https://openhcsdev.github.io/metaclass-registry/coverage.svg)](https://openhcsdev.github.io/metaclass-registry/coverage/)
 
 ## Features
 
