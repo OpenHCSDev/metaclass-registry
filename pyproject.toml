@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "metaclass-registry"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Zero-boilerplate metaclass-driven plugin registry system with lazy discovery and caching"
 authors = [{name = "Tristan Simas", email = "tristan.simas@mail.mcgill.ca"}]
 license = {text = "MIT"}
@@ -56,6 +56,9 @@ include = [
     "/LICENSE",
 ]
 
+[tool.hatch.version]
+path = "src/metaclass_registry/__init__.py"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -70,6 +73,8 @@ target-version = ["py310", "py311", "py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.mypy]

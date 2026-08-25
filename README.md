@@ -16,6 +16,7 @@
 - **Secondary Registries**: Auto-populate related registries from primary registry
 - **Persistent Caching**: Cache discovery results across process restarts
 - **Explicit Discovery**: Package scans occur only when the nominal root declares them
+- **Host Logging Safety**: Discovery imports preserve application-owned root logging
 - **Nominal Registry Families**: Stable key-axis declarations with
   ``RegistryFamily`` and ``RegistryKeyAttribute``
 - **Registered Enums**: ``RegisteredEnumMeta`` for enum members backed by a

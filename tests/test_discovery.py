@@ -1,6 +1,7 @@
 """Tests for metaclass_registry.discovery module."""
 
 import importlib
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -11,7 +12,70 @@ import pytest
 from metaclass_registry.discovery import (
     discover_registry_classes,
     discover_registry_classes_recursive,
+    import_module_preserving_root_logging,
 )
+
+
+def test_import_module_preserves_root_logging_authority(tmp_path):
+    """Discovery imports cannot replace application-owned root logging."""
+
+    module_name = "root_logging_plugin"
+    (tmp_path / f"{module_name}.py").write_text(
+        "\n".join(
+            (
+                "import logging",
+                "import sys",
+                "logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)",
+                "IMPORTED = True",
+            )
+        )
+    )
+    failing_module_name = "failing_root_logging_plugin"
+    (tmp_path / f"{failing_module_name}.py").write_text(
+        "\n".join(
+            (
+                "import logging",
+                "import sys",
+                "logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)",
+                "raise RuntimeError('import failed after configuring logging')",
+            )
+        )
+    )
+    root_logger = logging.getLogger()
+    previous_handlers = tuple(root_logger.handlers)
+    previous_level = root_logger.level
+    previous_disabled = root_logger.disabled
+    previous_disable_threshold = root_logger.manager.disable
+    application_handler = logging.NullHandler()
+    root_logger.handlers = [application_handler]
+    root_logger.setLevel(logging.ERROR)
+    root_logger.disabled = True
+    logging.disable(logging.CRITICAL)
+    sys.path.insert(0, str(tmp_path))
+    try:
+        module = import_module_preserving_root_logging(module_name)
+
+        assert module.IMPORTED is True
+        assert root_logger.handlers == [application_handler]
+        assert root_logger.level == logging.ERROR
+        assert root_logger.disabled is True
+        assert root_logger.manager.disable == logging.CRITICAL
+
+        with pytest.raises(RuntimeError, match="import failed after configuring logging"):
+            import_module_preserving_root_logging(failing_module_name)
+
+        assert root_logger.handlers == [application_handler]
+        assert root_logger.level == logging.ERROR
+        assert root_logger.disabled is True
+        assert root_logger.manager.disable == logging.CRITICAL
+    finally:
+        sys.path.remove(str(tmp_path))
+        sys.modules.pop(module_name, None)
+        sys.modules.pop(failing_module_name, None)
+        root_logger.handlers = list(previous_handlers)
+        root_logger.setLevel(previous_level)
+        root_logger.disabled = previous_disabled
+        logging.disable(previous_disable_threshold)
 
 
 class TestDiscoverRegistryClasses:
@@ -25,31 +89,25 @@ class TestDiscoverRegistryClasses:
         (pkg_dir / "__init__.py").write_text("")
 
         # Create a base class module
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Create plugin modules
-        (pkg_dir / "plugin_a.py").write_text(
-            """
+        (pkg_dir / "plugin_a.py").write_text("""
 from .base import BasePlugin
 
 class PluginA(BasePlugin):
     pass
-"""
-        )
+""")
 
-        (pkg_dir / "plugin_b.py").write_text(
-            """
+        (pkg_dir / "plugin_b.py").write_text("""
 from .base import BasePlugin
 
 class PluginB(BasePlugin):
     pass
-"""
-        )
+""")
 
         # Add to sys.path
         sys.path.insert(0, str(tmp_path))
@@ -66,20 +124,20 @@ class PluginB(BasePlugin):
                 package_path=pkg.__path__,
                 package_prefix="test_pkg.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             # Should find PluginA and PluginB
             assert len(discovered) == 2
             names = {cls.__name__ for cls in discovered}
-            assert names == {'PluginA', 'PluginB'}
+            assert names == {"PluginA", "PluginB"}
 
         finally:
             # Clean up sys.path
             sys.path.remove(str(tmp_path))
             # Remove from sys.modules
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg'):
+                if key.startswith("test_pkg"):
                     del sys.modules[key]
 
     def test_exclude_modules(self, tmp_path):
@@ -90,31 +148,25 @@ class PluginB(BasePlugin):
         (pkg_dir / "__init__.py").write_text("")
 
         # Create base class
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Create plugin modules
-        (pkg_dir / "plugin.py").write_text(
-            """
+        (pkg_dir / "plugin.py").write_text("""
 from .base import BasePlugin
 
 class Plugin(BasePlugin):
     pass
-"""
-        )
+""")
 
-        (pkg_dir / "test_plugin.py").write_text(
-            """
+        (pkg_dir / "test_plugin.py").write_text("""
 from .base import BasePlugin
 
 class TestPlugin(BasePlugin):
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -127,19 +179,19 @@ class TestPlugin(BasePlugin):
                 package_path=pkg.__path__,
                 package_prefix="test_pkg2.",
                 base_class=BasePlugin,
-                exclude_modules={'base', 'test_plugin'},
+                exclude_modules={"base", "test_plugin"},
             )
 
             # Should only find Plugin, not TestPlugin
             # Note: exclude_modules checks if substring is in module name
             # 'test_plugin' will match 'test_pkg2.test_plugin'
             assert len(discovered) == 1
-            assert discovered[0].__name__ == 'Plugin'
+            assert discovered[0].__name__ == "Plugin"
 
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg2'):
+                if key.startswith("test_pkg2"):
                     del sys.modules[key]
 
     def test_validation_func(self, tmp_path):
@@ -148,30 +200,24 @@ class TestPlugin(BasePlugin):
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     enabled = True
-"""
-        )
+""")
 
-        (pkg_dir / "plugin_a.py").write_text(
-            """
+        (pkg_dir / "plugin_a.py").write_text("""
 from .base import BasePlugin
 
 class PluginA(BasePlugin):
     enabled = True
-"""
-        )
+""")
 
-        (pkg_dir / "plugin_b.py").write_text(
-            """
+        (pkg_dir / "plugin_b.py").write_text("""
 from .base import BasePlugin
 
 class PluginB(BasePlugin):
     enabled = False
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -181,24 +227,24 @@ class PluginB(BasePlugin):
 
             # Only accept enabled plugins
             def validate(cls):
-                return getattr(cls, 'enabled', False) is True
+                return getattr(cls, "enabled", False) is True
 
             discovered = discover_registry_classes(
                 package_path=pkg.__path__,
                 package_prefix="test_pkg3.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
                 validation_func=validate,
             )
 
             # Should only find PluginA
             assert len(discovered) == 1
-            assert discovered[0].__name__ == 'PluginA'
+            assert discovered[0].__name__ == "PluginA"
 
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg3'):
+                if key.startswith("test_pkg3"):
                     del sys.modules[key]
 
     def test_no_classes_found(self, tmp_path):
@@ -207,20 +253,16 @@ class PluginB(BasePlugin):
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Module with no plugin classes
-        (pkg_dir / "utils.py").write_text(
-            """
+        (pkg_dir / "utils.py").write_text("""
 def helper():
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -232,7 +274,7 @@ def helper():
                 package_path=pkg.__path__,
                 package_prefix="test_pkg4.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             assert len(discovered) == 0
@@ -240,7 +282,7 @@ def helper():
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg4'):
+                if key.startswith("test_pkg4"):
                     del sys.modules[key]
 
 
@@ -255,36 +297,30 @@ class TestDiscoverRegistryClassesRecursive:
         (pkg_dir / "__init__.py").write_text("")
 
         # Base class
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Top-level plugin
-        (pkg_dir / "plugin_top.py").write_text(
-            """
+        (pkg_dir / "plugin_top.py").write_text("""
 from .base import BasePlugin
 
 class PluginTop(BasePlugin):
     pass
-"""
-        )
+""")
 
         # Nested subpackage
         sub_dir = pkg_dir / "subpackage"
         sub_dir.mkdir()
         (sub_dir / "__init__.py").write_text("")
 
-        (sub_dir / "plugin_sub.py").write_text(
-            """
+        (sub_dir / "plugin_sub.py").write_text("""
 from ..base import BasePlugin
 
 class PluginSub(BasePlugin):
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -297,19 +333,19 @@ class PluginSub(BasePlugin):
                 package_path=pkg.__path__,
                 package_prefix="test_pkg5.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             # Should find both top-level and nested plugins
             assert len(discovered) >= 2
             names = {cls.__name__ for cls in discovered}
-            assert 'PluginTop' in names
-            assert 'PluginSub' in names
+            assert "PluginTop" in names
+            assert "PluginSub" in names
 
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg5'):
+                if key.startswith("test_pkg5"):
                     del sys.modules[key]
 
     def test_deeply_nested_discovery(self, tmp_path):
@@ -319,12 +355,10 @@ class PluginSub(BasePlugin):
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Create nested path: level1/level2/level3
         level1 = pkg_dir / "level1"
@@ -339,14 +373,12 @@ class BasePlugin:
         level3.mkdir()
         (level3 / "__init__.py").write_text("")
 
-        (level3 / "deep_plugin.py").write_text(
-            """
+        (level3 / "deep_plugin.py").write_text("""
 from ....base import BasePlugin
 
 class DeepPlugin(BasePlugin):
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -358,17 +390,17 @@ class DeepPlugin(BasePlugin):
                 package_path=pkg.__path__,
                 package_prefix="test_pkg6.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             # Should find the deeply nested plugin
             names = {cls.__name__ for cls in discovered}
-            assert 'DeepPlugin' in names
+            assert "DeepPlugin" in names
 
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg6'):
+                if key.startswith("test_pkg6"):
                     del sys.modules[key]
 
 
@@ -381,34 +413,28 @@ class TestEdgeCases:
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         # Module with import error
-        (pkg_dir / "broken.py").write_text(
-            """
+        (pkg_dir / "broken.py").write_text("""
 import nonexistent_module  # This will fail
 
 from .base import BasePlugin
 
 class BrokenPlugin(BasePlugin):
     pass
-"""
-        )
+""")
 
         # Valid module
-        (pkg_dir / "valid.py").write_text(
-            """
+        (pkg_dir / "valid.py").write_text("""
 from .base import BasePlugin
 
 class ValidPlugin(BasePlugin):
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -421,18 +447,18 @@ class ValidPlugin(BasePlugin):
                 package_path=pkg.__path__,
                 package_prefix="test_pkg7.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             # Should still find ValidPlugin despite broken module
             names = {cls.__name__ for cls in discovered}
-            assert 'ValidPlugin' in names
-            assert 'BrokenPlugin' not in names
+            assert "ValidPlugin" in names
+            assert "BrokenPlugin" not in names
 
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg7'):
+                if key.startswith("test_pkg7"):
                     del sys.modules[key]
 
     def test_empty_package(self, tmp_path):
@@ -441,12 +467,10 @@ class ValidPlugin(BasePlugin):
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
 
-        (pkg_dir / "base.py").write_text(
-            """
+        (pkg_dir / "base.py").write_text("""
 class BasePlugin:
     pass
-"""
-        )
+""")
 
         sys.path.insert(0, str(tmp_path))
         try:
@@ -458,7 +482,7 @@ class BasePlugin:
                 package_path=pkg.__path__,
                 package_prefix="test_pkg8.",
                 base_class=BasePlugin,
-                exclude_modules={'base'},
+                exclude_modules={"base"},
             )
 
             assert len(discovered) == 0
@@ -466,5 +490,5 @@ class BasePlugin:
         finally:
             sys.path.remove(str(tmp_path))
             for key in list(sys.modules.keys()):
-                if key.startswith('test_pkg8'):
+                if key.startswith("test_pkg8"):
                     del sys.modules[key]

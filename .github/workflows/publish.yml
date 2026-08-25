@@ -36,7 +36,7 @@ jobs:
 
       - name: Check distribution
         run: |
-          pip install twine
+          pip install "twine>=7.0"
           twine check dist/*
 
       - name: Create GitHub Release

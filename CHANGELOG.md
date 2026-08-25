@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1
+
+- Preserve host-owned root logging while importing discovery modules, including
+  modules that call `logging.basicConfig(..., force=True)` during import.
+- Remove the string-keyed lazy cache-component map and use the cache declarations
+  directly.
+- Type registry keys by their actual hashable contract, validate declaration keys,
+  and preserve non-string keys when restoring a pickled lazy registry.
+- Restore green Ruff, Black, and mypy source gates.
+
 ## 0.2.0
 
 - Make package discovery an explicit nominal-root declaration. Ordinary
