@@ -41,7 +41,7 @@ from typing import Any, Generic, TypeVar
 logger = logging.getLogger(__name__)
 
 
-def get_cache_file_path(cache_name: str) -> Path:
+def get_cache_file_path(cache_name: str, *, create: bool = True) -> Path:
     """
     Get XDG-compliant cache file path.
 
@@ -63,7 +63,8 @@ def get_cache_file_path(cache_name: str) -> Path:
 
     # Create metaclass-registry subdirectory
     cache_dir = cache_home / "metaclass-registry"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    if create:
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
     return cache_dir / cache_name
 
