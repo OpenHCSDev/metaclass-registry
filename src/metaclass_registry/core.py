@@ -206,6 +206,14 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
             recursive=self._config.discovery_recursive,
         )
 
+    def _has_discovery_configuration(self) -> bool:
+        """Own the shared configuration/root admission for both discovery scopes."""
+        if not self._config or not self._config.discovery_package:
+            return False
+        if self._base_class is None:
+            raise RuntimeError("Discovery configuration has no nominal registry root")
+        return True
+
     def _discover(self) -> None:
         """
         Run discovery once, using cache if available.
@@ -218,10 +226,8 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
         the lock to ensure they don't read a partially-populated registry.
         """
         # No config = nothing to discover
-        if not self._config or not self._config.discovery_package:
+        if not self._has_discovery_configuration():
             return
-        if self._base_class is None:
-            raise RuntimeError("Discovery configuration has no nominal registry root")
 
         # ALWAYS acquire lock - no fast path to avoid race condition
         # RLock allows same thread to re-acquire during module imports
@@ -293,10 +299,8 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
         """
         from .discovery import discover_registry_classes
 
-        if self._config is None or self._config.discovery_package is None:
+        if not self._has_discovery_configuration():
             return
-        if self._base_class is None:
-            raise RuntimeError("Discovery configuration has no nominal registry root")
         if self._config.discovery_recursive or self._config.discovery_function:
             raise ValueError("Selected discovery requires the flat discovery owner")
         with self._discovery_lock:

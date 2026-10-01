@@ -88,6 +88,8 @@ def discover_registry_classes(
         validation_func: Optional function to validate discovered classes
                         Should return True to include, False to exclude
         skip_packages: If True, skip package directories (default: True)
+        module_filter: Declaration-owned eligibility before import. Selected
+                       import failures propagate instead of incomplete absence.
 
     Returns:
         List of discovered registry classes
