@@ -283,6 +283,33 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                 logger.warning(f"Discovery failed: {e}")
         # Lock released here - registry is now fully populated and safe to read
 
+    def discover_matching(self, module_filter: Callable[[str], bool]) -> None:
+        """Admit selected modules through the original discovery/import owner.
+
+        Selection is not full discovery and never publishes a complete cache.
+        Domain declarations supply eligibility; their ordinary metaclass still
+        owns registration. Selected import errors propagate rather than turning
+        an incomplete selection into apparent absence.
+        """
+        from .discovery import discover_registry_classes
+
+        if self._config is None or self._config.discovery_package is None:
+            return
+        if self._base_class is None:
+            raise RuntimeError("Discovery configuration has no nominal registry root")
+        if self._config.discovery_recursive or self._config.discovery_function:
+            raise ValueError("Selected discovery requires the flat discovery owner")
+        with self._discovery_lock:
+            if self._discovered:
+                return
+            package = importlib.import_module(self._config.discovery_package)
+            discover_registry_classes(
+                package.__path__,
+                f"{self._config.discovery_package}.",
+                self._base_class,
+                module_filter=module_filter,
+            )
+
     def __getitem__(self, key: RegistryKey) -> Any:
         with self._discovery_lock:
             self._discover()
