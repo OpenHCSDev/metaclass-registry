@@ -26,3 +26,12 @@ authority. Python source projections in OpenHCS are selection eligibility, not
 registered class/catalogue identities. No persisted format or installed environment
 changes. Pinned R0 and final source checkpoint are recorded in paired PR377 receipt.
 Parent/Dalton own installed knowledge retrieval and runtime acceptance.
+
+Final productionf27ff1ce18ddeaaa6f9dff6ff10778d3f40bb94b. Original pinned R0
+first rejects69b6's duplicated configuration admission; final owner factors one
+_has_discovery_configuration for both scopes, removes repeated checks,31metric
+projections zero-positive in1.68s/45356KiB. Final paired source selection53pass
+in7.18s/343340KiB; stronger independent real-callable/cooperative hooks5pass
+overlap that selection. Original rejected guard, test controls and broader
+environment failures persist in OpenHCS selected-discovery-evidence, not waived.
+OpenHCS production49b46d59e4eca9e5ea5c042c921f681bcf5ff732.
