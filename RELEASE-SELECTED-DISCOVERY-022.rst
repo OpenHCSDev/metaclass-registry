@@ -61,3 +61,30 @@ NRA review MEMB-1/TIME-3: package declarations and original release mechanisms
 remain authoritative, no mirrored manifests, compatibility aliases or ornamental
 inheritance. Behavioral MRO/new-declaration evidence is unchanged from merged PR2;
 this patch changes only the version declaration and changelog.
+
+Published paired source/evidence
+--------------------------------
+
+Dependency draft https://github.com/OpenHCSDev/metaclass-registry/pull/3;
+OpenHCS draft https://github.com/OpenHCSDev/openhcs/pull/414 (availability-gated).
+Tested version source9d181724bf3eac9d06b6bd990312f722911c66fb; original pinned
+R0 main3294a69 ->9d18172:24projections,zero positive,0.81s/44240KiB.
+48source checks pass,0.87s/42372KiB: selected/full discovery, core and original
+Hatch path-backed metadata authority. No discovery algorithm changed.
+Original R0 tool3b03785f/Python3.14 unchanged; no copied guard/global R1 claim.
+
+OpenHCS source witness invokes the original0.2.1 core declaration from tag commit
+ca0a87e873f929b311a87a4d60cd3bfba315dbcf: actual AttributeError reports no
+discover_matching. Its common imports resolve current source, so this narrow
+missing-method control is not a fresh old-wheel/whole-package installation proof.
+Actual old OpenHCS metadata admits0.2.1; the draft requires0.2.2. Original probe
+reports candidate unavailable ("exact release is not visible yet"),0.35s/31904KiB.
+Metadata-only HTTP read, no distribution downloaded. Do not merge minimum414.
+
+Logs, exact command/resource receipts and reproducibility script are retained
+under OpenHCS docs/validation/selected-discovery-release-022*. All three checks
+serial under oneCPU/kernel512MiB/no-swap/60s, original read-only interpreters.
+Resource startup warning RAM12.5GiB/home6.5GiB/root7.7GiB/swap10.2GiB; no new
+worktrees/environments/builds. Releaser/package minimum remain declared owners,
+not a new API roster. Optional readiness-helper source defects above remain
+unqualified; original tag-triggered publisher stays intact and uninvoked.
