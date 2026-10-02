@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.2
+
+- Add `LazyDiscoveryDict.discover_matching` for declaration-selected, flat
+  discovery through the original importer and registration owner. Partial
+  admission does not publish the full-discovery flag or cache; selected import
+  and declaration failures propagate. Explicit full discovery retains exact
+  registered identities.
+- Avoid creating an empty persistent discovery cache merely by probing it.
+
 ## 0.2.1
 
 - Preserve host-owned root logging while importing discovery modules, including
