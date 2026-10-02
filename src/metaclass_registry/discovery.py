@@ -70,6 +70,7 @@ def discover_registry_classes(
     exclude_modules: set[str] | None = None,
     validation_func: Callable[[type], bool] | None = None,
     skip_packages: bool = True,
+    module_filter: Callable[[str], bool] | None = None,
 ) -> list[type]:
     """
     Generic registry class discovery using pkgutil + importlib pattern.
@@ -87,6 +88,8 @@ def discover_registry_classes(
         validation_func: Optional function to validate discovered classes
                         Should return True to include, False to exclude
         skip_packages: If True, skip package directories (default: True)
+        module_filter: Declaration-owned eligibility before import. Selected
+                       import failures propagate instead of incomplete absence.
 
     Returns:
         List of discovered registry classes
@@ -121,6 +124,9 @@ def discover_registry_classes(
             logger.debug(f"Skipping excluded module: {module_name}")
             continue
 
+        if module_filter is not None and not module_filter(module_name):
+            continue
+
         try:
             # Import the module
             module = import_module_preserving_root_logging(module_name)
@@ -148,10 +154,14 @@ def discover_registry_classes(
                 registry_classes.append(obj)
 
         except ImportError as e:
+            if module_filter is not None:
+                raise
             # Skip modules that can't be imported (e.g., missing optional dependencies)
             logger.debug(f"Could not import module {module_name}: {e}")
             continue
         except Exception as e:
+            if module_filter is not None:
+                raise
             # Log unexpected errors but continue discovery
             logger.warning(f"Failed to load registry module {module_name}: {e}")
             continue
