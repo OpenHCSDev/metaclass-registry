@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+- Add `metaclass_registry.strategies`: enum-keyed, nominal-type-keyed and
+  most-derived-context strategy family mixins, generated leaf class specs and
+  enum payload helpers. Cached registry views are rebuilt when a family gains a
+  member, so a strategy declared after the first lookup is selected.
+- Add `metaclass_registry.caches`: `BoundedCache`, `SynchronizedBoundedCache`,
+  and the `ProcessLocalBoundedCache` family, whose members register by
+  inheritance and are cleared together by `clear_process_caches()`;
+  `IdentityBoundProcessCache` binds values to owner identity.
+- `AutoRegisterMeta` forwards class keywords to `__init_subclass__`.
+
 ## 0.2.2
 
 - Add `LazyDiscoveryDict.discover_matching` for declaration-selected, flat
