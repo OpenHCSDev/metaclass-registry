@@ -182,6 +182,50 @@ Set ``RegistryConfig.key_extractor`` when names must be derived. The extractor
 receives ``(class_name, cls)`` and should return the semantic key. Prefer an
 explicit family key attribute when the declaration can own the value directly.
 
+### Strategy families
+
+``metaclass_registry.strategies`` derives a family's registry key from one
+declaration on each member and selects members from the registry:
+
+- ``EnumKeyedStrategyMixin``: members declare the enum member they implement;
+  ``for_enum_member`` instantiates the one registered for a member.
+- ``NominalTypeStrategyFamilyMixin``: members declare ``value_type``;
+  ``for_nominal_value`` picks the most specific registered type by MRO distance.
+- ``MostDerivedContextStrategyMixin``: each direct subclass starts a family with its
+  own registry; members implement ``matches`` and precedence is plain inheritance.
+- ``GeneratedLeafClassSpec``: declares generated leaf classes into a namespace.
+
+```python
+from abc import ABC, abstractmethod
+from enum import Enum
+from metaclass_registry import AutoRegisterMeta
+from metaclass_registry.strategies import EnumKeyedStrategyMixin
+
+class Shape(Enum):
+    SQUARE = "square"
+
+class ShapeArea(EnumKeyedStrategyMixin[Shape], ABC, metaclass=AutoRegisterMeta):
+    @abstractmethod
+    def area(self, size: float) -> float: ...
+
+class SquareArea(ShapeArea):
+    strategy_key = Shape.SQUARE
+
+    def area(self, size: float) -> float:
+        return size * size
+
+assert ShapeArea.for_enum_member(Shape.SQUARE).area(2.0) == 4.0
+```
+
+### Process-local caches
+
+``metaclass_registry.caches`` provides ``BoundedCache`` (an LRU owned by its
+holder), ``SynchronizedBoundedCache`` and the ``ProcessLocalBoundedCache`` family.
+Subclassing ``ProcessLocalBoundedCache`` is membership: each subclass owns one
+process-local singleton, and ``clear_process_caches()`` on the root (or on any
+subfamily) clears every member below it. ``IdentityBoundProcessCache`` binds
+values to an owner object and rejects a reused ``id``.
+
 ## Documentation
 
 Full documentation available at [metaclass-registry.readthedocs.io](https://metaclass-registry.readthedocs.io)

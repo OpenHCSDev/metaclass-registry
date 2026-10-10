@@ -543,6 +543,7 @@ class AutoRegisterMeta(ABCMeta):
         bases: tuple[type, ...],
         attrs: dict[str, Any],
         registry_config: RegistryConfig | None = None,
+        **class_kwargs: Any,
     ) -> type:
         """
         Create a new class and register it if appropriate.
@@ -553,6 +554,7 @@ class AutoRegisterMeta(ABCMeta):
             attrs: Class attributes dictionary
             registry_config: Configuration for registration behavior.
                            If None, auto-configures from class attributes or skips registration.
+            class_kwargs: Class keywords, passed on to ``__init_subclass__``.
 
         Returns:
             The newly created class
@@ -585,7 +587,7 @@ class AutoRegisterMeta(ABCMeta):
             registry_config = inherited_registry_configs[0] if inherited_registry_configs else None
 
         # Create the class using ABCMeta
-        new_class: type = super().__new__(mcs, name, bases, attrs)
+        new_class: type = super().__new__(mcs, name, bases, attrs, **class_kwargs)
         if isinstance(registry_family, RegistryFamily):
             registry_family.apply_to_class(new_class, attrs)
         if declared_registry_config is not None:
