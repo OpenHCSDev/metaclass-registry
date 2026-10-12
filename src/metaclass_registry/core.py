@@ -723,7 +723,11 @@ class AutoRegisterMeta(ABCMeta):
         if registry_config is None:
             registry_config = mcs._auto_configure_registry(new_class, attrs)
             if registry_config is None:
-                return new_class  # No config and no auto-config possible
+                # No config and no auto-config possible
+                mcs._reject_replacement_without_registration(
+                    new_class, attrs, "it belongs to no registry"
+                )
+                return new_class
 
         # Set up lazy discovery if registry dict supports it (only once for base class)
         if (
@@ -779,6 +783,9 @@ class AutoRegisterMeta(ABCMeta):
 
         # Only register concrete classes (not abstract base classes)
         if not bases or getattr(new_class, "__abstractmethods__", None):
+            mcs._reject_replacement_without_registration(
+                new_class, attrs, "it is abstract and does not register"
+            )
             return new_class
 
         # Get or derive the registration key
@@ -786,14 +793,21 @@ class AutoRegisterMeta(ABCMeta):
 
         # Handle missing key
         if key is None:
+            mcs._reject_replacement_without_registration(new_class, attrs, "it has no registry key")
             return mcs._handle_missing_key(name, registry_config, new_class)
 
         # Register in primary registry
+        replaces = attrs.get(REPLACES_REGISTERED_ATTRIBUTE)
+        if replaces is not None and not isinstance(replaces, type):
+            raise TypeError(
+                f"{_describe(new_class)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+                f"{replaces!r}; it must be the registered class this class replaces."
+            )
         superseded = mcs._register_class(
             new_class,
             key,
             registry_config,
-            replaces=attrs.get(REPLACES_REGISTERED_ATTRIBUTE),
+            replaces=replaces,
         )
 
         # Handle secondary registrations
@@ -992,6 +1006,21 @@ class AutoRegisterMeta(ABCMeta):
             skip_if_no_key=skip_if_no_key,
             secondary_registries=secondary_registries,
             registry_name=registry_name,
+        )
+
+    @staticmethod
+    def _reject_replacement_without_registration(
+        cls: type,
+        attrs: dict[str, Any],
+        reason: str,
+    ) -> None:
+        """A declared replacement that replaces nothing is an error, not a no-op."""
+        replaces = attrs.get(REPLACES_REGISTERED_ATTRIBUTE)
+        if replaces is None:
+            return
+        raise DuplicateRegistryKeyError(
+            f"{_describe(cls)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+            f"{_describe(replaces)}, but {reason}."
         )
 
     @staticmethod

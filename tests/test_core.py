@@ -1,5 +1,6 @@
 """Tests for metaclass_registry.core module."""
 
+from abc import abstractmethod
 import pytest
 from enum import Enum
 from metaclass_registry import (
@@ -774,6 +775,36 @@ class TestOneClassPerKey:
                 __replaces_registered__ = PluginA
 
         assert Plugin.__registry__ == {"a": PluginA, "b": PluginB}
+
+    def test_declared_replacement_on_a_class_that_does_not_register_raises(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        with pytest.raises(DuplicateRegistryKeyError, match="is abstract"):
+
+            class AbstractPlugin(Plugin):
+                __replaces_registered__ = PluginA
+
+                @abstractmethod
+                def run(self): ...
+
+        assert Plugin.__registry__ == {"a": PluginA}
+
+    def test_declared_replacement_must_be_a_class(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        with pytest.raises(TypeError, match="must be the registered class"):
+
+            class PluginB(Plugin):
+                name = "a"
+                __replaces_registered__ = "PluginA"
+
+        assert Plugin.__registry__ == {"a": PluginA}
 
     def test_subclass_of_a_derived_key_class_derives_its_own_key(self):
         """The key stamped on a registered class is not its subclasses' key."""

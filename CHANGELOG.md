@@ -18,7 +18,9 @@ Behaviour change: a registry key names one class.
 - Intentional replacement is declared in the replacing class body:
   `__replaces_registered__ = OtherClass`. It is not inherited, and the key
   must currently hold exactly `OtherClass`. A secondary entry registered by
-  the replaced class goes with it.
+  the replaced class goes with it. The declaration must be a class, and a
+  class that declares it without registering (abstract, no key, no registry)
+  raises: a declared replacement that replaces nothing is an error.
 - `register_once(registry, key, value, registry_name=...)` and
   `is_same_declaration(a, b)` are public, for registries that are filled by
   hand.

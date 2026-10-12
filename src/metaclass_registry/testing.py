@@ -27,7 +27,7 @@ def restored_registry(
     """
     from .strategies import _invalidate_family_projections
 
-    registry = family.__registry__
+    registry: dict[RegistryKey, object] = getattr(family, "__registry__")
     # Finish lazy discovery first: a discovery that ran inside the block would
     # find the released keys occupied by stand-ins.
     len(registry)
