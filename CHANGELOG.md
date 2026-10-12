@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0
+
+Behaviour change: a registry key names one class.
+
+- Registering a different class under a key that already holds a class raises
+  `DuplicateRegistryKeyError` (a `RegistryError`) naming the family, the key
+  and both classes. Before, the second class silently replaced the first, so
+  nothing reading the registry could tell that a class had been displaced.
+  The same rule applies to secondary registries and to entries loaded from the
+  discovery cache.
+- Not a conflict: the same class object again, and the same class statement
+  created again (equal `__module__` and `__qualname__`, as produced by
+  `importlib.reload`, a re-import, or a second run of one function body; or a
+  class rebuilt from a copy of the registered class's namespace, as
+  `dataclass(slots=True)` does). The new object takes the key.
+- Intentional replacement is declared in the replacing class body:
+  `__replaces_registered__ = OtherClass`. It is not inherited, and the key
+  must currently hold exactly `OtherClass`. A secondary entry registered by
+  the replaced class goes with it. The declaration must be a class, and a
+  class that declares it without registering (abstract, no key, no registry)
+  raises: a declared replacement that replaces nothing is an error.
+- `register_once(registry, key, value, registry_name=...)` and
+  `is_same_declaration(a, b)` are public, for registries that are filled by
+  hand.
+- `metaclass_registry.testing.restored_registry(family, released=(...))` lets a
+  test define stand-in members under released keys and restores the registry
+  exactly afterwards.
+- Fix: a subclass of a registered class whose key came from the family's key
+  extractor derives its own key. Before, it inherited the key stamped on its
+  parent and displaced the parent.
+- `DuplicateRegistryKeyError` propagates through discovery instead of being
+  logged as a skipped module, and a discovery that fails this way is not
+  recorded as complete.
+- The derived name of a family (used in messages) comes from the class that
+  owns the registry, not from the member being registered.
+
+Migration: give each colliding class its own key, or declare
+`__replaces_registered__`. Tests that define throwaway members of a shared
+family need unique keys or their own family.
+
 ## 0.3.0
 
 - Add `metaclass_registry.strategies`: enum-keyed, nominal-type-keyed and

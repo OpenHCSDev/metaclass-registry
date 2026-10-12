@@ -5,11 +5,12 @@ This package provides a generic metaclass infrastructure for automatic plugin
 registration with lazy discovery, caching, and zero boilerplate.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from .cache import RegistryCacheManager
 from .core import (
     PRIMARY_KEY,
+    REPLACES_REGISTERED_ATTRIBUTE,
     AutoRegisterMeta,
     LazyDiscoveryDict,
     RegisteredEnumMeta,
@@ -21,14 +22,21 @@ from .core import (
     extract_key_from_backend_suffix,
     extract_key_from_class_name,
     extract_key_from_handler_suffix,
+    is_same_declaration,
     make_suffix_extractor,
+    register_once,
 )
 from .discovery import (
     discover_registry_classes,
     discover_registry_classes_recursive,
     import_module_preserving_root_logging,
 )
-from .exceptions import CacheError, DiscoveryError, RegistryError
+from .exceptions import (
+    CacheError,
+    DiscoveryError,
+    DuplicateRegistryKeyError,
+    RegistryError,
+)
 
 __all__ = [
     # Core
@@ -38,6 +46,9 @@ __all__ = [
     "RegistryKeyAttribute",
     "RegisteredEnumMeta",
     "PRIMARY_KEY",
+    "REPLACES_REGISTERED_ATTRIBUTE",
+    "register_once",
+    "is_same_declaration",
     "SecondaryRegistry",
     "LazyDiscoveryDict",
     "SecondaryRegistryDict",
@@ -53,6 +64,7 @@ __all__ = [
     "RegistryCacheManager",
     # Exceptions
     "RegistryError",
+    "DuplicateRegistryKeyError",
     "DiscoveryError",
     "CacheError",
 ]

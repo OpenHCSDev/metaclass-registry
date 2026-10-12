@@ -58,6 +58,7 @@ from .cache import (
     get_package_file_mtimes,
     serialize_plugin_class,
 )
+from .exceptions import DuplicateRegistryKeyError
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,108 @@ KeyExtractor = Callable[[str, type], RegistryKey]
 
 # Constants for key sources
 PRIMARY_KEY = "primary"
+
+# Declared in a class body: the registered class this class takes the key from.
+REPLACES_REGISTERED_ATTRIBUTE = "__replaces_registered__"
+
+# Set on a class whose key came from the family's key extractor, so that a
+# subclass derives its own key instead of inheriting the stamped one.
+_DERIVED_KEY_MARKER = "__registry_key_derived__"
+
+# Set on a class when it registers. A class rebuilt from a copy of the
+# registered class's namespace (``dataclass(slots=True)`` does this) carries
+# the same token in its own namespace; a subclass or an unrelated class does not.
+_DECLARATION_TOKEN = "__registry_declaration__"
+
+_ABSENT: Any = object()
+
+
+def _describe(value: object) -> str:
+    """Name a registered value by module and qualified name when it has them."""
+    module = getattr(value, "__module__", None)
+    qualname = getattr(value, "__qualname__", None)
+    if module is None or qualname is None:
+        return repr(value)
+    return f"{module}.{qualname}"
+
+
+def is_same_declaration(registered: object, candidate: object) -> bool:
+    """Whether two class objects come from one class statement.
+
+    ``importlib.reload``, a re-import and a second run of the same function
+    body build a new class object for a declaration that already registered:
+    the module and qualified name are the declaration's identity, the object
+    is not. ``dataclass(slots=True)`` rebuilds the class by calling the
+    metaclass with a copy of its namespace, before the qualified name is
+    restored: that class has the same module and name and carries the
+    registered class's declaration token in its own namespace.
+    """
+    if not isinstance(registered, type) or not isinstance(candidate, type):
+        return False
+    if registered.__module__ != candidate.__module__:
+        return False
+    if registered.__qualname__ == candidate.__qualname__:
+        return True
+    token = vars(registered).get(_DECLARATION_TOKEN)
+    return (
+        token is not None
+        and vars(candidate).get(_DECLARATION_TOKEN) is token
+        and registered.__name__ == candidate.__name__
+    )
+
+
+def register_once(
+    registry_dict: "RegistryDict",
+    key: RegistryKey,
+    value: Any,
+    *,
+    registry_name: str,
+    replaces: object = None,
+    superseded_values: tuple[object, ...] = (),
+) -> Any:
+    """Store ``value`` under ``key``; a key never silently changes hands.
+
+    Returns the value that ``value`` took the key from, or ``None``.
+
+    - The same object again is a no-op.
+    - A class from the same declaration (see ``is_same_declaration``) takes
+      the key from its earlier object.
+    - ``replaces`` names the registered value this one is declared to take
+      the key from; the key must hold exactly that value.
+    - ``superseded_values`` are values registered by a class that the
+      registering class has just taken over from (secondary registries).
+    - Anything else raises ``DuplicateRegistryKeyError``.
+    """
+    existing = dict.get(registry_dict, key, _ABSENT)
+    if existing is value:
+        return None
+    if existing is _ABSENT:
+        if replaces is not None:
+            raise DuplicateRegistryKeyError(
+                f"{_describe(value)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+                f"{_describe(replaces)}, but {registry_name} key {key!r} is not registered."
+            )
+        registry_dict[key] = value
+        return None
+    if (
+        is_same_declaration(existing, value)
+        or existing is replaces
+        or any(existing is superseded for superseded in superseded_values)
+    ):
+        registry_dict[key] = value
+        return existing
+    if replaces is not None:
+        raise DuplicateRegistryKeyError(
+            f"{_describe(value)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+            f"{_describe(replaces)}, but {registry_name} key {key!r} is registered to "
+            f"{_describe(existing)}."
+        )
+    raise DuplicateRegistryKeyError(
+        f"{registry_name} key {key!r} is already registered to {_describe(existing)}; "
+        f"{_describe(value)} cannot register under the same key. Give it its own key, or "
+        f"declare {REPLACES_REGISTERED_ATTRIBUTE} = {getattr(existing, '__name__', 'TheOther')} "
+        f"in its class body if it is meant to take the key over."
+    )
 
 
 class RegistryKeyAttribute(str, Enum):
@@ -246,11 +349,22 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                     cached_plugins = self._cache_manager.load_cache()
                     if cached_plugins is not None:
                         # Reconstruct registry from cache
-                        self.update(cached_plugins)
+                        assert self._config is not None
+                        cached_registry_name = self._config.registry_name
+                        for cached_key, cached_plugin in cached_plugins.items():
+                            register_once(
+                                self,
+                                cached_key,
+                                cached_plugin,
+                                registry_name=cached_registry_name,
+                            )
                         logger.debug(
                             f"✅ Loaded {len(self)} {self._config.registry_name}s from cache"
                         )
                         return
+                except DuplicateRegistryKeyError:
+                    self._discovered = False
+                    raise
                 except Exception as e:
                     logger.debug(f"Cache load failed for {self._config.registry_name}: {e}")
 
@@ -285,6 +399,10 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                     except Exception as e:
                         logger.debug(f"Failed to save cache for {self._config.registry_name}: {e}")
 
+            except DuplicateRegistryKeyError:
+                # A partly populated registry must not pass for a discovered one.
+                self._discovered = False
+                raise
             except Exception as e:
                 logger.warning(f"Discovery failed: {e}")
         # Lock released here - registry is now fully populated and safe to read
@@ -605,7 +723,11 @@ class AutoRegisterMeta(ABCMeta):
         if registry_config is None:
             registry_config = mcs._auto_configure_registry(new_class, attrs)
             if registry_config is None:
-                return new_class  # No config and no auto-config possible
+                # No config and no auto-config possible
+                mcs._reject_replacement_without_registration(
+                    new_class, attrs, "it belongs to no registry"
+                )
+                return new_class
 
         # Set up lazy discovery if registry dict supports it (only once for base class)
         if (
@@ -661,6 +783,9 @@ class AutoRegisterMeta(ABCMeta):
 
         # Only register concrete classes (not abstract base classes)
         if not bases or getattr(new_class, "__abstractmethods__", None):
+            mcs._reject_replacement_without_registration(
+                new_class, attrs, "it is abstract and does not register"
+            )
             return new_class
 
         # Get or derive the registration key
@@ -668,14 +793,31 @@ class AutoRegisterMeta(ABCMeta):
 
         # Handle missing key
         if key is None:
+            mcs._reject_replacement_without_registration(new_class, attrs, "it has no registry key")
             return mcs._handle_missing_key(name, registry_config, new_class)
 
         # Register in primary registry
-        mcs._register_class(new_class, key, registry_config)
+        replaces = attrs.get(REPLACES_REGISTERED_ATTRIBUTE)
+        if replaces is not None and not isinstance(replaces, type):
+            raise TypeError(
+                f"{_describe(new_class)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+                f"{replaces!r}; it must be the registered class this class replaces."
+            )
+        superseded = mcs._register_class(
+            new_class,
+            key,
+            registry_config,
+            replaces=replaces,
+        )
 
         # Handle secondary registrations
         if registry_config.secondary_registries:
-            mcs._register_secondary(new_class, key, registry_config.secondary_registries)
+            mcs._register_secondary(
+                new_class,
+                key,
+                registry_config.secondary_registries,
+                superseded=superseded,
+            )
 
         # Log registration if enabled
         if registry_config.log_registration:
@@ -690,8 +832,21 @@ class AutoRegisterMeta(ABCMeta):
         config: RegistryConfig,
     ) -> RegistryKey | None:
         """Get the registration key for a class (explicit or derived)."""
-        # Try explicit key first
+        # Try explicit key first. A key that registration stamped on an
+        # ancestor after deriving it is that ancestor's key, not a declaration
+        # this class inherits: the class derives its own.
         key = getattr(cls, config.key_attribute, None)
+        if key is not None and config.key_extractor is not None:
+            key_owner = next(
+                (base for base in cls.__mro__ if config.key_attribute in vars(base)),
+                None,
+            )
+            if (
+                key_owner is not None
+                and key_owner is not cls
+                and vars(key_owner).get(_DERIVED_KEY_MARKER, False)
+            ):
+                key = None
         if key is not None:
             if not isinstance(key, Hashable):
                 raise TypeError(f"Registry key {key!r} declared by {cls.__name__} is not hashable")
@@ -699,7 +854,10 @@ class AutoRegisterMeta(ABCMeta):
 
         # Try key extractor if provided
         if config.key_extractor is not None:
-            return config.key_extractor(name, cls)
+            derived_key = config.key_extractor(name, cls)
+            if derived_key is not None:
+                setattr(cls, _DERIVED_KEY_MARKER, True)
+            return derived_key
 
         return None
 
@@ -817,7 +975,13 @@ class AutoRegisterMeta(ABCMeta):
         # Auto-derive registry name if not provided
         if registry_name is None:
             # Derive from class name: "StorageBackend" → "storage backend"
-            clean_name = new_class.__name__
+            # The family is named after the class that owns the registry, so
+            # messages about any member name the family.
+            registry_owner = next(
+                (base for base in new_class.__mro__ if "__registry__" in vars(base)),
+                new_class,
+            )
+            clean_name = registry_owner.__name__
             for suffix in ["Base", "Meta", "Handler", "Registry"]:
                 if clean_name.endswith(suffix):
                     clean_name = clean_name[: -len(suffix)]
@@ -845,16 +1009,46 @@ class AutoRegisterMeta(ABCMeta):
         )
 
     @staticmethod
-    def _register_class(cls: type, key: RegistryKey, config: RegistryConfig) -> None:
-        """Register class in primary registry."""
-        config.registry_dict[key] = cls
+    def _reject_replacement_without_registration(
+        cls: type,
+        attrs: dict[str, Any],
+        reason: str,
+    ) -> None:
+        """A declared replacement that replaces nothing is an error, not a no-op."""
+        replaces = attrs.get(REPLACES_REGISTERED_ATTRIBUTE)
+        if replaces is None:
+            return
+        raise DuplicateRegistryKeyError(
+            f"{_describe(cls)} declares {REPLACES_REGISTERED_ATTRIBUTE} = "
+            f"{_describe(replaces)}, but {reason}."
+        )
+
+    @staticmethod
+    def _register_class(
+        cls: type,
+        key: RegistryKey,
+        config: RegistryConfig,
+        replaces: object = None,
+    ) -> type | None:
+        """Register class in primary registry; return the class it took the key from."""
+        superseded: type | None = register_once(
+            config.registry_dict,
+            key,
+            cls,
+            registry_name=config.registry_name,
+            replaces=replaces,
+        )
         setattr(cls, config.key_attribute, key)
+        if _DECLARATION_TOKEN not in vars(cls):
+            setattr(cls, _DECLARATION_TOKEN, object())
+        return superseded
 
     @staticmethod
     def _register_secondary(
         cls: type,
         primary_key: RegistryKey,
         secondary_registries: list[SecondaryRegistry],
+        superseded: type | None = None,
     ) -> None:
         """Handle secondary registry registrations."""
         for sec_reg in secondary_registries:
@@ -881,8 +1075,18 @@ class AutoRegisterMeta(ABCMeta):
                     )
                 secondary_key = declared_secondary_key
 
-            # Register in secondary registry
-            sec_reg.registry_dict[secondary_key] = value
+            # Register in secondary registry. The value registered by the
+            # class this one took the primary key from goes with it.
+            superseded_value = (
+                None if superseded is None else getattr(superseded, sec_reg.attr_name, None)
+            )
+            register_once(
+                sec_reg.registry_dict,
+                secondary_key,
+                value,
+                registry_name=f"{sec_reg.attr_name} (secondary registry of {cls.__name__})",
+                superseded_values=() if superseded_value is None else (superseded_value,),
+            )
             logger.debug(
                 f"Auto-registered {sec_reg.attr_name} from {cls.__name__} as '{secondary_key}'"
             )
