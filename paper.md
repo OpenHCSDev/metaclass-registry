@@ -18,69 +18,87 @@ bibliography: paper.bib
 
 # Summary
 
-`metaclass-registry` provides automatic class registration for Python plugin systems. When a developer defines a class inheriting from a base with `AutoRegisterMeta`, the class is immediately available in the registry—no configuration files, no decorator calls, no manual dictionary insertion. The complete registration for a storage backend is:
+`metaclass-registry` registers Python classes in a registry when they are defined. A root class uses the metaclass `AutoRegisterMeta` and names the class attribute that holds each member's key. Every concrete subclass is then stored under its key, with no configuration file, decorator or dictionary insertion:
 
 ```python
+from metaclass_registry import AutoRegisterMeta
+
+class StorageBackend(metaclass=AutoRegisterMeta):
+    __registry_key__ = "_backend_type"
+
 class ZarrBackend(StorageBackend):
     _backend_type = "zarr"
+
+assert StorageBackend.__registry__["zarr"] is ZarrBackend
 ```
 
-The class is now discoverable via `StorageBackend.__registry__["zarr"]`. When the nominal root explicitly declares a discovery package, the library handles lazy discovery (plugins aren't imported until the registry is accessed), disk caching with version and source-inventory validation, thread-safe access, secondary registries for related metadata, and automatic key extraction from class names.
+A key names one class: a different class that claims a taken key raises `DuplicateRegistryKeyError`, unless it declares the replacement with `__replaces_registered__`. A root that declares a discovery package gets its plugin modules imported on first registry access, with a validated disk cache. Roots can also declare secondary registries and a key extractor that derives keys from class names.
 
 # Statement of Need
 
-Applications with extensible architectures—storage backends, file format handlers, hardware drivers, GUI widgets—require plugin registration. The standard Python approaches each impose friction:
+Applications with storage backends, file format handlers, hardware drivers or GUI widgets need plugin registration. The standard Python approaches each have a cost:
 
-**Setuptools entry points** require `pyproject.toml` configuration per plugin and package installation. For application-internal plugins where the developer controls all code, this adds deployment complexity without benefit.
+**Setuptools entry points** require `pyproject.toml` configuration per plugin and package installation, which is deployment work with no benefit for plugins inside one application.
 
-**Explicit registration** (`BACKENDS["zarr"] = ZarrBackend` or `@register`) is error-prone. Add a class, forget the registration call, and the plugin silently fails to appear. In a codebase with 40+ plugin classes across 6 registries, this becomes a recurring source of bugs.
+**Explicit registration** (`BACKENDS["zarr"] = ZarrBackend` or `@register`) is easy to forget: a class without its registration call is absent, with no error. Two classes can also write the same key, and the second silently displaces the first.
 
-**Manual discovery** (`pkgutil.iter_modules` + `importlib.import_module`) requires ~20 lines of boilerplate per registry, repeated identically across each plugin system.
+**Manual discovery** (`pkgutil.iter_modules` plus `importlib.import_module`) is the same scanning loop written again for each registry.
 
-`metaclass-registry` eliminates all three. The base class definition specifies the registry configuration once; every subclass auto-registers. In OpenHCS (a microscopy image analysis platform), this pattern is used for storage backends, microscope format handlers, metadata parsers, array converters, widget adapters, and parameter type handlers—6 distinct registries, 40+ plugin classes, zero manual registration.
+`metaclass-registry` replaces all three. The root class states the registry configuration once, and each member's class statement is its registration, so there is no second table to keep in step. Since 0.4.0 a collision between two members is an error instead of a silent replacement.
 
 # State of the Field
 
-**Stevedore** [@stevedore] manages plugins via setuptools entry points. It provides driver managers and extension managers but requires entry point configuration in `pyproject.toml` for each plugin class. This is appropriate for third-party extensions but creates friction for internal plugins.
+**Stevedore** [@stevedore] manages plugins via setuptools entry points. It provides driver managers and extension managers but requires entry point configuration in `pyproject.toml` for each plugin class.
 
-**Pluggy** [@pluggy] powers pytest's hook system. It provides sophisticated hook calling with ordering and wrappers but requires `@hookimpl` decorators and explicit `register()` calls. It targets hook-based extensibility rather than class registration.
+**Pluggy** [@pluggy] powers pytest's hook system. It provides hook calling with ordering and wrappers but requires `@hookimpl` decorators and explicit `register()` calls. It targets hook-based extensibility rather than class registration.
 
-**Entry points** (via `importlib.metadata`) are the standard for cross-package discovery. They require package installation and metadata configuration.
-
-`metaclass-registry` targets a different use case: **application-internal plugins where all code is controlled by the developer**. No configuration files. No installation steps. No registration calls. Define the class, set the key attribute, done.
+`metaclass-registry` targets a different use case: **plugins inside an application whose code the developer controls**.
 
 | Feature | metaclass-registry | Stevedore | pluggy |
 |---------|-------------------|-----------|--------|
 | Zero config files | ✓ | ✗ | ✗ |
 | Zero registration calls | ✓ | ✗ | ✗ |
 | Lazy discovery | ✓ | ✓ | ✗ |
-| Disk caching with mtime | ✓ | ✗ | ✗ |
+| Disk caching with mtime | ✓ | ✓ | ✗ |
 | Secondary registries | ✓ | ✗ | ✗ |
 | Works without install | ✓ | ✗ | ✓ |
 
 # Software Design
 
-The base class declares registry configuration via class attributes:
+A root declares `__registry_key__` as above, or one `RegistryConfig` that owns the registry, the key attribute and the discovery package:
 
 ```python
+from metaclass_registry import LazyDiscoveryDict, RegistryConfig
+
 class BackendBase(metaclass=AutoRegisterMeta):
     __registry_config__ = RegistryConfig(
         registry_dict=LazyDiscoveryDict(),
         key_attribute='_backend_type',
-        discovery_package='openhcs.io',
+        skip_if_no_key=True,
+        discovery_package='polystore',
     )
 ```
 
-When Python processes a subclass definition, `AutoRegisterMeta.__new__` extracts the key from the `_backend_type` attribute and inserts the class into the registry. Abstract classes (with unimplemented abstract methods) are skipped.
+**Registration.** When Python executes a subclass statement, `AutoRegisterMeta.__new__` reads the key and stores the class. The root and classes with unimplemented abstract methods are not registered. The key is the value of the key attribute, inherited values included. If there is none and the root declares a key extractor (for example `make_suffix_extractor("Backend")`), the key is derived from the class name. A class with no key is skipped or raises `ValueError`, according to `skip_if_no_key`.
 
-**Lazy discovery** defers plugin imports until first registry access when the nominal root's `RegistryConfig` declares a `discovery_package`. `LazyDiscoveryDict` overrides `__getitem__`, `__contains__`, and iteration methods to trigger `pkgutil.iter_modules` scanning on first use. Results are cached to `~/.cache/metaclass-registry/` with version and source-inventory validation—subsequent application starts load exact imported class declarations from cache without re-scanning. Roots without an explicit discovery package register only declarations imported by the application.
-
-**Example**: An OpenHCS application with 40 storage backends doesn't import their modules while constructing the registry root. When the registry is first accessed, lazy discovery scans the declared `openhcs.io` package, imports its plugin modules, and caches the resulting class identities. On the next application start, the cache imports the recorded declarations directly instead of scanning. If a developer adds, modifies, or removes a discoverable backend source, source-inventory validation invalidates the cache and discovery runs again.
-
-**Secondary registries** handle related metadata. A microscope handler registers both itself and its metadata parser:
+**One class per key.** Registering the same class object again does nothing. A new class object from the same class statement (same module and qualified name, as after `importlib.reload`) takes the key from the old one. Any other class raises `DuplicateRegistryKeyError`, naming the registry, the key and both classes; this includes a subclass that inherits a registered parent's declared key. Replacement is declared by the replacing class and is not inherited:
 
 ```python
+class ChunkedZarrBackend(ZarrBackend):
+    __replaces_registered__ = ZarrBackend
+```
+
+The key must currently hold exactly the named class, and a declaration on a class that does not register raises. The same rule covers secondary registries and entries loaded from the discovery cache; `register_once` applies it to dictionaries filled by hand.
+
+**Lazy discovery** applies only when the `RegistryConfig` declares a `discovery_package`. `LazyDiscoveryDict` overrides its read methods (`__getitem__`, `__contains__`, iteration) to scan the package with `pkgutil.iter_modules` and import its modules on first use. The result is written to `~/.cache/metaclass-registry/` (or under `$XDG_CACHE_HOME`). A later start imports the recorded classes directly instead of scanning, provided the root package's `__version__` is unchanged, the cache is under seven days old, and the package's `.py` files are the same set with the same modification times. A module that fails to import during a scan is logged and skipped, so its classes are absent; a duplicate key propagates. Roots without a discovery package hold only the classes the application has imported.
+
+**Secondary registries** store a value declared by each member, under the member's key or a key read from another attribute:
+
+```python
+METADATA_HANDLERS = {}
+
 class MicroscopeHandler(metaclass=AutoRegisterMeta):
+    __registry__ = {}
     __registry_key__ = '_microscope_type'
     __secondary_registries__ = [
         SecondaryRegistry(
@@ -95,19 +113,18 @@ class ImageXpressHandler(MicroscopeHandler):
     _metadata_handler_class = ImageXpressMetadata
 ```
 
-Both `MicroscopeHandler.__registry__['imagexpress']` and `METADATA_HANDLERS['imagexpress']` are populated automatically.
+Defining `ImageXpressHandler` fills both `MicroscopeHandler.__registry__['imagexpress']` and `METADATA_HANDLERS['imagexpress']`. The root here supplies a plain dict as its registry.
 
-**Thread safety** uses `threading.RLock` around discovery. The reentrant lock handles recursive access when module imports during discovery trigger registry lookups.
+**Thread safety.** A `LazyDiscoveryDict` holds a reentrant `threading.RLock` throughout discovery and takes it on every read, so no reader sees a partly filled registry. Registration takes no lock.
 
 # Research Impact Statement
 
-`metaclass-registry` is used across the OpenHCS microscopy platform:
+`metaclass-registry` is a dependency of the OpenHCS microscopy platform and its libraries:
 
-- **openhcs**: `BackendBase` (storage backends), `MicroscopeHandler` (format handlers), `METADATA_HANDLERS` (secondary registry)
-- **arraybridge**: `ConverterBase` (6 GPU framework converters auto-generated from config)
-- **pyqt-reactor**: `WidgetMeta` (widget adapters), `ParameterInfoMeta` (parameter type handlers)
-
-The library consolidated ~200 lines of duplicated metaclass code into a single, tested implementation. Adding a new storage backend or microscope handler requires only the class definition—no registration code, no configuration updates.
+- **openhcs**: 240 class statements use `AutoRegisterMeta`; the roots with a discovery package include `LibraryRegistryBase` and `SessionOperation`
+- **polystore**: `BackendBase` (storage backends, discovered in the `polystore` package)
+- **arraybridge**: `ArrayLibrary` (one class per array library) and `ConversionRoute`
+- **pyqt-reactor**: `CellEditor` and `WidgetDescriptorProjector`, among others
 
 # AI Usage Disclosure
 
