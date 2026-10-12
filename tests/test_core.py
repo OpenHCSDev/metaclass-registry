@@ -937,3 +937,40 @@ class TestDiscoveryReportsDuplicateKeys:
             len(test_pkg_duplicates.REGISTRY)
         for name in [name for name in sys.modules if name.startswith("test_pkg_duplicates")]:
             del sys.modules[name]
+
+
+class TestRestoredRegistry:
+    def test_stand_in_takes_a_released_key_and_the_registry_comes_back(self):
+        from metaclass_registry.testing import restored_registry
+
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        with restored_registry(Plugin, released=("a",)):
+
+            class StandIn(PluginA):
+                pass
+
+            class Extra(Plugin):
+                name = "extra"
+
+            assert Plugin.__registry__ == {"a": StandIn, "extra": Extra}
+
+        assert Plugin.__registry__ == {"a": PluginA}
+
+    def test_keys_that_were_not_released_still_reject_a_second_class(self):
+        from metaclass_registry.testing import restored_registry
+
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        with restored_registry(Plugin), pytest.raises(DuplicateRegistryKeyError):
+
+            class StandIn(PluginA):
+                pass
+
+        assert Plugin.__registry__ == {"a": PluginA}

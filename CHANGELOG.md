@@ -22,6 +22,9 @@ Behaviour change: a registry key names one class.
 - `register_once(registry, key, value, registry_name=...)` and
   `is_same_declaration(a, b)` are public, for registries that are filled by
   hand.
+- `metaclass_registry.testing.restored_registry(family, released=(...))` lets a
+  test define stand-in members under released keys and restores the registry
+  exactly afterwards.
 - Fix: a subclass of a registered class whose key came from the family's key
   extractor derives its own key. Before, it inherited the key stamped on its
   parent and displaced the parent.
