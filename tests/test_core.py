@@ -12,6 +12,8 @@ from metaclass_registry import (
     SecondaryRegistryDict,
     SecondaryRegistry,
     PRIMARY_KEY,
+    DuplicateRegistryKeyError,
+    is_same_declaration,
     extract_key_from_class_name,
     extract_key_from_handler_suffix,
     extract_key_from_backend_suffix,
@@ -568,22 +570,6 @@ class TestComplexScenarios:
         assert len(Plugin.__registry__) == 3
         assert set(Plugin.__registry__.keys()) == {'a', 'b', 'c'}
 
-    def test_duplicate_key_overwrite(self):
-        """Test that duplicate keys overwrite previous registration."""
-
-        class Plugin(metaclass=AutoRegisterMeta):
-            __registry_key__ = 'name'
-            name = None
-
-        class PluginA(Plugin):
-            name = 'same'
-
-        class PluginB(Plugin):
-            name = 'same'  # Same key
-
-        # Last one should win
-        assert Plugin.__registry__['same'] is PluginB
-
     def test_secondary_registry_without_attr(self):
         """Test secondary registry when class doesn't have the attribute."""
         HANDLERS = {}
@@ -609,3 +595,345 @@ class TestComplexScenarios:
 
         # Secondary registration should be skipped (handler_class is None)
         assert 'my_plugin' not in HANDLERS
+
+
+def _plugin_family():
+    class Plugin(metaclass=AutoRegisterMeta):
+        __registry_key__ = "name"
+        name = None
+
+    return Plugin
+
+
+class TestOneClassPerKey:
+    """A registry key names one class; it never silently changes hands."""
+
+    def test_different_class_on_occupied_key_raises_naming_both(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "same"
+
+        with pytest.raises(DuplicateRegistryKeyError) as error:
+
+            class PluginB(Plugin):
+                name = "same"
+
+        message = str(error.value)
+        assert "'same'" in message
+        assert "PluginA" in message and "PluginB" in message
+        assert "plugin" in message
+        assert Plugin.__registry__["same"] is PluginA
+
+    def test_subclass_inheriting_a_declared_key_raises(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        with pytest.raises(DuplicateRegistryKeyError):
+
+            class PluginChild(PluginA):
+                pass
+
+        assert Plugin.__registry__["a"] is PluginA
+
+    def test_same_class_object_registers_again_without_error(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        config = RegistryConfig(
+            registry_dict=Plugin.__registry__, key_attribute="name", registry_name="plugin"
+        )
+        assert AutoRegisterMeta._register_class(PluginA, "a", config) is None
+        assert Plugin.__registry__ == {"a": PluginA}
+
+    def test_same_declaration_created_again_takes_the_key(self):
+        """A reload or a second run of one class statement re-creates the class."""
+        Plugin = _plugin_family()
+
+        def declare():
+            class PluginA(Plugin):
+                name = "a"
+
+            return PluginA
+
+        first = declare()
+        second = declare()
+
+        assert first is not second
+        assert is_same_declaration(first, second)
+        assert Plugin.__registry__ == {"a": second}
+
+    def test_reloaded_module_takes_its_keys_back(self, tmp_path, monkeypatch):
+        import importlib
+        import sys
+
+        (tmp_path / "test_pkg_reloaded.py").write_text(
+            "from metaclass_registry import AutoRegisterMeta\n"
+            "class Plugin(metaclass=AutoRegisterMeta):\n"
+            "    __registry_key__ = 'name'\n"
+            "    __registry__ = REGISTRY\n"
+            "    name = None\n"
+            "class PluginA(Plugin):\n"
+            "    name = 'a'\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        import builtins
+
+        registry = {}
+        monkeypatch.setattr(builtins, "REGISTRY", registry, raising=False)
+        module = importlib.import_module("test_pkg_reloaded")
+        first = module.PluginA
+        module = importlib.reload(module)
+
+        assert module.PluginA is not first
+        assert registry == {"a": module.PluginA}
+        sys.modules.pop("test_pkg_reloaded", None)
+
+    def test_slots_dataclass_registers_its_final_class(self):
+        from dataclasses import dataclass
+
+        Plugin = _plugin_family()
+
+        @dataclass(frozen=True, slots=True)
+        class PluginA(Plugin):
+            name = "a"
+            value: int = 0
+
+        assert Plugin.__registry__ == {"a": PluginA}
+        assert PluginA.__slots__ == ("value",)
+
+    def test_same_name_in_another_scope_is_a_different_declaration(self):
+        Plugin = _plugin_family()
+
+        def declare_one():
+            class PluginA(Plugin):
+                name = "a"
+
+            return PluginA
+
+        def declare_other():
+            class PluginA(Plugin):
+                name = "a"
+
+            return PluginA
+
+        declare_one()
+        with pytest.raises(DuplicateRegistryKeyError):
+            declare_other()
+
+    def test_declared_replacement_takes_the_key(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        class PluginB(PluginA):
+            __replaces_registered__ = PluginA
+
+        assert Plugin.__registry__ == {"a": PluginB}
+
+    def test_declared_replacement_is_not_inherited(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        class PluginB(PluginA):
+            __replaces_registered__ = PluginA
+
+        with pytest.raises(DuplicateRegistryKeyError):
+
+            class PluginC(PluginB):
+                pass
+
+        assert Plugin.__registry__ == {"a": PluginB}
+
+    def test_declared_replacement_must_name_the_registered_class(self):
+        Plugin = _plugin_family()
+
+        class PluginA(Plugin):
+            name = "a"
+
+        class PluginB(Plugin):
+            name = "b"
+
+        with pytest.raises(DuplicateRegistryKeyError, match="is registered to"):
+
+            class PluginC(Plugin):
+                name = "a"
+                __replaces_registered__ = PluginB
+
+        with pytest.raises(DuplicateRegistryKeyError, match="is not registered"):
+
+            class PluginD(Plugin):
+                name = "d"
+                __replaces_registered__ = PluginA
+
+        assert Plugin.__registry__ == {"a": PluginA, "b": PluginB}
+
+    def test_subclass_of_a_derived_key_class_derives_its_own_key(self):
+        """The key stamped on a registered class is not its subclasses' key."""
+
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_key__ = "label"
+            __key_extractor__ = staticmethod(lambda name, cls: cls.mode)
+            label = None
+            mode = None
+
+        class MaskPlugin(Plugin):
+            mode = "mask"
+
+        class ObjectPlugin(MaskPlugin):
+            mode = "objects"
+
+        assert Plugin.__registry__ == {"mask": MaskPlugin, "objects": ObjectPlugin}
+        assert ObjectPlugin.label == "objects"
+
+    def test_slots_dataclass_subclass_of_a_derived_key_class_derives_its_own_key(self):
+        from dataclasses import dataclass
+
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_key__ = "label"
+            __key_extractor__ = staticmethod(lambda name, cls: cls.mode)
+            label = None
+            mode = None
+
+        @dataclass(frozen=True, slots=True)
+        class MaskPlugin(Plugin):
+            mode = "mask"
+
+        @dataclass(frozen=True, slots=True)
+        class ObjectPlugin(MaskPlugin):
+            mode = "objects"
+
+        assert Plugin.__registry__ == {"mask": MaskPlugin, "objects": ObjectPlugin}
+
+    def test_error_names_the_family_not_the_member(self):
+        class StorageBackend(metaclass=AutoRegisterMeta):
+            __registry_key__ = "name"
+            name = None
+
+        class DiskBackend(StorageBackend):
+            name = "disk"
+
+        with pytest.raises(DuplicateRegistryKeyError, match="^storage backend key 'disk'"):
+
+            class OtherDiskBackend(StorageBackend):
+                name = "disk"
+
+
+class TestOneValuePerSecondaryKey:
+    def _family(self, handlers, key_source=PRIMARY_KEY):
+        class Plugin(metaclass=AutoRegisterMeta):
+            __registry_key__ = "name"
+            __secondary_registries__ = [
+                SecondaryRegistry(
+                    registry_dict=handlers, key_source=key_source, attr_name="handler_class"
+                )
+            ]
+            name = None
+            handler_key = None
+            handler_class = None
+
+        return Plugin
+
+    def test_different_value_on_occupied_secondary_key_raises(self):
+        handlers = {}
+        Plugin = self._family(handlers, key_source="handler_key")
+
+        class HandlerA:
+            pass
+
+        class HandlerB:
+            pass
+
+        class PluginA(Plugin):
+            name = "a"
+            handler_key = "shared"
+            handler_class = HandlerA
+
+        with pytest.raises(DuplicateRegistryKeyError, match="handler_class"):
+
+            class PluginB(Plugin):
+                name = "b"
+                handler_key = "shared"
+                handler_class = HandlerB
+
+        assert handlers == {"shared": HandlerA}
+
+    def test_same_value_on_a_secondary_key_is_accepted(self):
+        handlers = {}
+        Plugin = self._family(handlers, key_source="handler_key")
+
+        class Handler:
+            pass
+
+        class PluginA(Plugin):
+            name = "a"
+            handler_key = "shared"
+            handler_class = Handler
+
+        class PluginB(Plugin):
+            name = "b"
+            handler_key = "shared"
+            handler_class = Handler
+
+        assert handlers == {"shared": Handler}
+
+    def test_replacing_class_takes_the_secondary_entry_with_it(self):
+        handlers = {}
+        Plugin = self._family(handlers)
+
+        class HandlerA:
+            pass
+
+        class HandlerB:
+            pass
+
+        class PluginA(Plugin):
+            name = "a"
+            handler_class = HandlerA
+
+        class PluginB(PluginA):
+            __replaces_registered__ = PluginA
+            handler_class = HandlerB
+
+        assert Plugin.__registry__ == {"a": PluginB}
+        assert handlers == {"a": HandlerB}
+
+
+class TestDiscoveryReportsDuplicateKeys:
+    def test_duplicate_key_in_a_discovered_package_propagates(self, tmp_path, monkeypatch):
+        import sys
+
+        package = tmp_path / "test_pkg_duplicates"
+        package.mkdir()
+        (package / "__init__.py").write_text(
+            "from metaclass_registry import AutoRegisterMeta, LazyDiscoveryDict, RegistryConfig\n"
+            "REGISTRY = LazyDiscoveryDict(enable_cache=False)\n"
+            "class Plugin(metaclass=AutoRegisterMeta):\n"
+            "    __registry_config__ = RegistryConfig(\n"
+            "        registry_dict=REGISTRY, key_attribute='name',\n"
+            "        discovery_package='test_pkg_duplicates', registry_name='plugin')\n"
+            "    name = None\n"
+        )
+        for module_name in ("first", "second"):
+            (package / f"{module_name}.py").write_text(
+                "from test_pkg_duplicates import Plugin\n"
+                f"class {module_name.title()}Plugin(Plugin):\n"
+                "    name = 'same'\n"
+            )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        import test_pkg_duplicates
+
+        with pytest.raises(DuplicateRegistryKeyError, match="'same'"):
+            len(test_pkg_duplicates.REGISTRY)
+        # A failed discovery is not recorded as complete.
+        with pytest.raises(DuplicateRegistryKeyError, match="'same'"):
+            len(test_pkg_duplicates.REGISTRY)
+        for name in [name for name in sys.modules if name.startswith("test_pkg_duplicates")]:
+            del sys.modules[name]

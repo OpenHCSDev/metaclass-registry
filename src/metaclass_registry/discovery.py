@@ -19,6 +19,8 @@ import threading
 from collections.abc import Callable, Iterable
 from types import ModuleType
 
+from .exceptions import DuplicateRegistryKeyError
+
 logger = logging.getLogger(__name__)
 _ROOT_LOGGING_IMPORT_LOCK = threading.RLock()
 
@@ -153,6 +155,9 @@ def discover_registry_classes(
                 logger.debug(f"Discovered registry class: {obj.__name__} from {module_name}")
                 registry_classes.append(obj)
 
+        except DuplicateRegistryKeyError:
+            # Two classes claiming one key is a defect in the family, never a skipped module.
+            raise
         except ImportError as e:
             if module_filter is not None:
                 raise
@@ -257,6 +262,9 @@ def discover_registry_classes_recursive(
                 logger.debug(f"Discovered registry class: {attr.__name__} from {modname}")
                 registry_classes.append(attr)
 
+        except DuplicateRegistryKeyError:
+            # Two classes claiming one key is a defect in the family, never a skipped module.
+            raise
         except ImportError as e:
             # Skip modules that can't be imported
             logger.debug(f"Could not import module {modname}: {e}")
