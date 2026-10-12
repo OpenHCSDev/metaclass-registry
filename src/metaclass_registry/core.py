@@ -349,12 +349,14 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                     cached_plugins = self._cache_manager.load_cache()
                     if cached_plugins is not None:
                         # Reconstruct registry from cache
+                        assert self._config is not None
+                        cached_registry_name = self._config.registry_name
                         for cached_key, cached_plugin in cached_plugins.items():
                             register_once(
                                 self,
                                 cached_key,
                                 cached_plugin,
-                                registry_name=self._config.registry_name,
+                                registry_name=cached_registry_name,
                             )
                         logger.debug(
                             f"✅ Loaded {len(self)} {self._config.registry_name}s from cache"
@@ -1000,7 +1002,7 @@ class AutoRegisterMeta(ABCMeta):
         replaces: object = None,
     ) -> type | None:
         """Register class in primary registry; return the class it took the key from."""
-        superseded = register_once(
+        superseded: type | None = register_once(
             config.registry_dict,
             key,
             cls,

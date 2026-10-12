@@ -153,6 +153,32 @@ PLUGINS = PluginBase.__registry__
 
 ## Advanced Features
 
+### One class per key
+
+A key names one class. A second, different class under an occupied key raises
+`DuplicateRegistryKeyError` at its class statement, naming the family, the key
+and both classes:
+
+```python
+class PluginA(Plugin):
+    name = "same"
+
+class PluginB(Plugin):
+    name = "same"   # DuplicateRegistryKeyError
+```
+
+The same class statement run again is not a conflict (`importlib.reload`,
+`dataclass(slots=True)`, a re-import): the new class object takes the key. To
+replace a registered class on purpose, say so in the replacing class body; the
+key must currently hold exactly the class named:
+
+```python
+class FasterPluginA(PluginA):
+    __replaces_registered__ = PluginA
+```
+
+Secondary registries follow the same rule.
+
 ### Registry Inheritance
 
 ```python
