@@ -162,8 +162,8 @@ class TestGetPackageFileMtimes:
 
     def test_get_mtimes_invalid_package(self):
         """Test getting mtimes for non-existent package."""
-        mtimes = get_package_file_mtimes('nonexistent.package')
-        assert mtimes == {}
+        with pytest.raises(ModuleNotFoundError, match='nonexistent'):
+            get_package_file_mtimes('nonexistent.package')
 
     def test_nonrecursive_inventory_excludes_nested_sources(self, tmp_path):
         """Cache inventory follows the discovery recursion declared by its owner."""

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.1
+
+- P54: `LazyDiscoveryDict` accepts a declared module as well as a package.
+  A module is imported once; only packages have child modules to scan.
+- Discovery import and declaration errors now raise instead of publishing an
+  incomplete registry as discovered. Explicit module exclusions and selection
+  still decide eligibility before import.
+- Module cache inventories contain that module's source, not its neighbours.
+
 ## 0.4.0
 
 Behaviour change: a registry key names one class.

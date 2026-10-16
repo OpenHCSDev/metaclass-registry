@@ -29,6 +29,7 @@ Usage:
     )
 """
 
+import importlib
 import json
 import logging
 import time
@@ -36,7 +37,9 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from enum import Enum, EnumMeta
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
+
+from .exceptions import DiscoveryError
 
 logger = logging.getLogger(__name__)
 
@@ -379,8 +382,6 @@ def deserialize_plugin_class(data: dict[str, Any]) -> type:
         ImportError: If module cannot be imported
         AttributeError: If class not found in module
     """
-    import importlib
-
     declaration: Any = importlib.import_module(data["module"])
     for owner_name in data["qualname"].split("."):
         if owner_name == "<locals>":
@@ -397,7 +398,7 @@ def get_package_file_mtimes(
     recursive: bool = True,
 ) -> dict[str, float]:
     """
-    Get modification times for all Python files in a package.
+    Get source modification times for a declared module or package.
 
     Args:
         package_path: Package path (e.g., "openhcs.microscopes")
@@ -406,29 +407,20 @@ def get_package_file_mtimes(
     Returns:
         Dictionary mapping file paths to modification times
     """
-    import importlib
-    import importlib.util
-    from pathlib import Path
-
-    try:
-        importlib.import_module(package_path)
-        spec = importlib.util.find_spec(package_path)
-        if spec is None:
+    module = importlib.import_module(package_path)
+    spec = module.__spec__
+    if spec is None:
+        raise DiscoveryError(f"Discovery scope has no module spec: {module.__name__}")
+    if spec.submodule_search_locations is None:
+        if not spec.has_location:
             return {}
-        if spec.submodule_search_locations:
-            package_dirs = [Path(location) for location in spec.submodule_search_locations]
-        elif spec.origin is not None:
-            package_dirs = [Path(spec.origin).parent]
-        else:
-            return {}
+        source = Path(cast(str, spec.origin))
+        return {str(source): source.stat().st_mtime}
 
-        mtimes = {}
-        for package_dir in package_dirs:
-            source_files = package_dir.rglob("*.py") if recursive else package_dir.glob("*.py")
-            for py_file in source_files:
-                mtimes[str(py_file)] = py_file.stat().st_mtime
-
-        return mtimes
-    except Exception as e:
-        logger.warning(f"Failed to get mtimes for {package_path}: {e}")
-        return {}
+    mtimes = {}
+    for location in spec.submodule_search_locations:
+        package_dir = Path(location)
+        source_files = package_dir.rglob("*.py") if recursive else package_dir.glob("*.py")
+        for py_file in source_files:
+            mtimes[str(py_file)] = py_file.stat().st_mtime
+    return mtimes

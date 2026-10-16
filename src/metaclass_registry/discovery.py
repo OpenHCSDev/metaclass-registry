@@ -18,8 +18,9 @@ import pkgutil
 import threading
 from collections.abc import Callable, Iterable
 from types import ModuleType
+from typing import NoReturn
 
-from .exceptions import DuplicateRegistryKeyError
+from .exceptions import DiscoveryError
 
 logger = logging.getLogger(__name__)
 _ROOT_LOGGING_IMPORT_LOCK = threading.RLock()
@@ -129,47 +130,17 @@ def discover_registry_classes(
         if module_filter is not None and not module_filter(module_name):
             continue
 
-        try:
-            # Import the module
-            module = import_module_preserving_root_logging(module_name)
-
-            # Find all classes in the module
-            for name, obj in inspect.getmembers(module, inspect.isclass):
-                # Filter for subclasses of base_class
-                if not issubclass(obj, base_class):
-                    continue
-
-                # Exclude the base class itself
-                if obj is base_class:
-                    continue
-
-                # Only include classes defined in this module (not imported)
-                if obj.__module__ != module_name:
-                    continue
-
-                # Apply optional validation function
-                if validation_func and not validation_func(obj):
-                    logger.debug(f"Validation failed for {obj.__name__}")
-                    continue
-
-                logger.debug(f"Discovered registry class: {obj.__name__} from {module_name}")
-                registry_classes.append(obj)
-
-        except DuplicateRegistryKeyError:
-            # Two classes claiming one key is a defect in the family, never a skipped module.
-            raise
-        except ImportError as e:
-            if module_filter is not None:
-                raise
-            # Skip modules that can't be imported (e.g., missing optional dependencies)
-            logger.debug(f"Could not import module {module_name}: {e}")
-            continue
-        except Exception as e:
-            if module_filter is not None:
-                raise
-            # Log unexpected errors but continue discovery
-            logger.warning(f"Failed to load registry module {module_name}: {e}")
-            continue
+        module = import_module_preserving_root_logging(module_name)
+        for name, obj in inspect.getmembers(module, inspect.isclass):
+            if not issubclass(obj, base_class) or obj is base_class:
+                continue
+            if obj.__module__ != module_name:
+                continue
+            if validation_func and not validation_func(obj):
+                logger.debug(f"Validation failed for {obj.__name__}")
+                continue
+            logger.debug(f"Discovered registry class: {obj.__name__} from {module_name}")
+            registry_classes.append(obj)
 
     logger.info(
         f"Discovered {len(registry_classes)} registry classes for {base_class.__name__}: "
@@ -177,6 +148,10 @@ def discover_registry_classes(
     )
 
     return registry_classes
+
+
+def _walk_import_failed(module_name: str) -> NoReturn:
+    raise DiscoveryError(f"Cannot discover package {module_name}")
 
 
 def discover_registry_classes_recursive(
@@ -224,7 +199,9 @@ def discover_registry_classes_recursive(
     )
 
     # Walk through all modules in the package tree
-    for importer, modname, ispkg in pkgutil.walk_packages(package_path, prefix=package_prefix):
+    for importer, modname, ispkg in pkgutil.walk_packages(
+        package_path, prefix=package_prefix, onerror=_walk_import_failed
+    ):
         # Skip packages (only process modules)
         if ispkg:
             continue
@@ -234,45 +211,16 @@ def discover_registry_classes_recursive(
             logger.debug(f"Skipping excluded module: {modname}")
             continue
 
-        try:
-            # Import the module
-            module = import_module_preserving_root_logging(modname)
-
-            # Find all classes in the module
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-
-                # Check if it's a class
-                if not isinstance(attr, type):
-                    continue
-
-                # Check if it's a subclass of base_class
-                if not issubclass(attr, base_class):
-                    continue
-
-                # Exclude the base class itself
-                if attr is base_class:
-                    continue
-
-                # Apply optional validation function
-                if validation_func and not validation_func(attr):
-                    logger.debug(f"Validation failed for {attr.__name__}")
-                    continue
-
-                logger.debug(f"Discovered registry class: {attr.__name__} from {modname}")
-                registry_classes.append(attr)
-
-        except DuplicateRegistryKeyError:
-            # Two classes claiming one key is a defect in the family, never a skipped module.
-            raise
-        except ImportError as e:
-            # Skip modules that can't be imported
-            logger.debug(f"Could not import module {modname}: {e}")
-            continue
-        except Exception as e:
-            # Log unexpected errors but continue discovery
-            logger.warning(f"Failed to load registry module {modname}: {e}")
-            continue
+        module = import_module_preserving_root_logging(modname)
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            if not isinstance(attr, type) or not issubclass(attr, base_class) or attr is base_class:
+                continue
+            if validation_func and not validation_func(attr):
+                logger.debug(f"Validation failed for {attr.__name__}")
+                continue
+            logger.debug(f"Discovered registry class: {attr.__name__} from {modname}")
+            registry_classes.append(attr)
 
     logger.info(
         "Discovered %d registry classes (recursive) for %s: %s",

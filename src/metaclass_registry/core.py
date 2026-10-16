@@ -42,14 +42,14 @@ This keeps domain semantics on their nominal owner while eliminating duplicated
 metaclass wrappers and caller-side discovery inference.
 """
 
-import importlib
 import logging
 import threading
 from abc import ABCMeta
-from collections.abc import Callable, Hashable, Iterator
+from collections.abc import Callable, Hashable, Iterable, Iterator
+from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import Enum, EnumMeta
-from typing import Any
+from typing import Any, cast
 
 from .cache import (
     CacheConfig,
@@ -58,7 +58,12 @@ from .cache import (
     get_package_file_mtimes,
     serialize_plugin_class,
 )
-from .exceptions import DuplicateRegistryKeyError
+from .discovery import (
+    discover_registry_classes,
+    discover_registry_classes_recursive,
+    import_module_preserving_root_logging,
+)
+from .exceptions import DiscoveryError, DuplicateRegistryKeyError
 
 logger = logging.getLogger(__name__)
 
@@ -317,95 +322,49 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
             raise RuntimeError("Discovery configuration has no nominal registry root")
         return True
 
+    def _scope_paths(self) -> Iterable[str] | None:
+        """Import the declared scope; a plain module has no child modules to scan."""
+        config = cast(RegistryConfig, self._config)
+        module = import_module_preserving_root_logging(cast(str, config.discovery_package))
+        spec = module.__spec__
+        if spec is None:
+            raise DiscoveryError(f"Discovery scope has no module spec: {module.__name__}")
+        return spec.submodule_search_locations
+
+    def _discovery_failed(self) -> None:
+        self._discovered = False
+
     def _discover(self) -> None:
-        """
-        Run discovery once, using cache if available.
-
-        Thread-safe: Discovery happens inside the lock to ensure atomicity.
-        The lock is held for the entire duration to prevent other threads
-        from reading a partially-populated registry.
-
-        CRITICAL: No fast path check outside the lock! All threads must acquire
-        the lock to ensure they don't read a partially-populated registry.
-        """
-        # No config = nothing to discover
+        """Build members once under the registry lock; failed builds remain incomplete."""
         if not self._has_discovery_configuration():
             return
-
-        # ALWAYS acquire lock - no fast path to avoid race condition
-        # RLock allows same thread to re-acquire during module imports
         with self._discovery_lock:
-            # Check if already discovered (inside lock)
             if self._discovered:
                 return
-
-            # Mark as discovered to prevent infinite re-entry from same thread
-            # (module imports during discovery might access registry)
-            self._discovered = True
-
-            # Try to load from cache first
-            if self._cache_manager:
-                try:
+            with ExitStack() as failure:
+                failure.callback(self._discovery_failed)
+                # Same-thread imports may read the registry while declarations register.
+                self._discovered = True
+                config = cast(RegistryConfig, self._config)
+                if self._cache_manager:
                     cached_plugins = self._cache_manager.load_cache()
                     if cached_plugins is not None:
-                        # Reconstruct registry from cache
-                        assert self._config is not None
-                        cached_registry_name = self._config.registry_name
-                        for cached_key, cached_plugin in cached_plugins.items():
-                            register_once(
-                                self,
-                                cached_key,
-                                cached_plugin,
-                                registry_name=cached_registry_name,
-                            )
-                        logger.debug(
-                            f"✅ Loaded {len(self)} {self._config.registry_name}s from cache"
-                        )
+                        for key, plugin in cached_plugins.items():
+                            register_once(self, key, plugin, registry_name=config.registry_name)
+                        failure.pop_all()
                         return
-                except DuplicateRegistryKeyError:
-                    self._discovered = False
-                    raise
-                except Exception as e:
-                    logger.debug(f"Cache load failed for {self._config.registry_name}: {e}")
 
-            # Cache miss or disabled - perform full discovery
-            try:
-                pkg = importlib.import_module(self._config.discovery_package)
-
-                if self._config.discovery_function:
-                    self._config.discovery_function(
-                        pkg.__path__, f"{self._config.discovery_package}.", self._base_class
-                    )
-                else:
-                    from metaclass_registry.discovery import (
-                        discover_registry_classes,
-                        discover_registry_classes_recursive,
-                    )
-
-                    func = (
+                paths = self._scope_paths()
+                if paths is not None:
+                    discover = config.discovery_function or (
                         discover_registry_classes_recursive
-                        if self._config.discovery_recursive
+                        if config.discovery_recursive
                         else discover_registry_classes
                     )
-                    func(pkg.__path__, f"{self._config.discovery_package}.", self._base_class)
-
-                logger.debug(f"Discovered {len(self)} {self._config.registry_name}s")
-
-                # Save to cache if enabled
+                    discover(paths, f"{config.discovery_package}.", cast(type, self._base_class))
                 if self._cache_manager:
-                    try:
-                        file_mtimes = self._get_discovery_file_mtimes()
-                        self._cache_manager.save_cache(dict(self), file_mtimes)
-                    except Exception as e:
-                        logger.debug(f"Failed to save cache for {self._config.registry_name}: {e}")
-
-            except DuplicateRegistryKeyError:
-                # A partly populated registry must not pass for a discovered one.
-                self._discovered = False
-                raise
-            except Exception as e:
-                logger.warning(f"Discovery failed: {e}")
-        # Lock released here - registry is now fully populated and safe to read
+                    self._cache_manager.save_cache(dict(self), self._get_discovery_file_mtimes())
+                failure.pop_all()
 
     def discover_matching(self, module_filter: Callable[[str], bool]) -> None:
         """Admit selected modules through the original discovery/import owner.
@@ -415,20 +374,21 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
         owns registration. Selected import errors propagate rather than turning
         an incomplete selection into apparent absence.
         """
-        from .discovery import discover_registry_classes
-
         if not self._has_discovery_configuration():
             return
-        if self._config.discovery_recursive or self._config.discovery_function:
+        config = cast(RegistryConfig, self._config)
+        if config.discovery_recursive or config.discovery_function:
             raise ValueError("Selected discovery requires the flat discovery owner")
         with self._discovery_lock:
             if self._discovered:
                 return
-            package = importlib.import_module(self._config.discovery_package)
+            paths = self._scope_paths()
+            if paths is None:
+                return
             discover_registry_classes(
-                package.__path__,
-                f"{self._config.discovery_package}.",
-                self._base_class,
+                paths,
+                f"{config.discovery_package}.",
+                cast(type, self._base_class),
                 module_filter=module_filter,
             )
 
