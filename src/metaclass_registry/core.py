@@ -358,7 +358,8 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                 if paths is not None:
                     discover = config.discovery_function or (
                         discover_registry_classes_recursive
-                        if config.discovery_recursive else discover_registry_classes
+                        if config.discovery_recursive
+                        else discover_registry_classes
                     )
                     discover(paths, f"{config.discovery_package}.", cast(type, self._base_class))
                 if self._cache_manager:
