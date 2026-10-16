@@ -360,7 +360,7 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                         discover_registry_classes_recursive
                         if config.discovery_recursive else discover_registry_classes
                     )
-                    discover(paths, f"{config.discovery_package}.", self._base_class)
+                    discover(paths, f"{config.discovery_package}.", cast(type, self._base_class))
                 if self._cache_manager:
                     self._cache_manager.save_cache(dict(self), self._get_discovery_file_mtimes())
                 failure.pop_all()
@@ -375,7 +375,8 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
         """
         if not self._has_discovery_configuration():
             return
-        if self._config.discovery_recursive or self._config.discovery_function:
+        config = cast(RegistryConfig, self._config)
+        if config.discovery_recursive or config.discovery_function:
             raise ValueError("Selected discovery requires the flat discovery owner")
         with self._discovery_lock:
             if self._discovered:
@@ -385,8 +386,8 @@ class LazyDiscoveryDict(dict[RegistryKey, Any]):
                 return
             discover_registry_classes(
                 paths,
-                f"{self._config.discovery_package}.",
-                self._base_class,
+                f"{config.discovery_package}.",
+                cast(type, self._base_class),
                 module_filter=module_filter,
             )
 

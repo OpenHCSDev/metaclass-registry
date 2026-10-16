@@ -407,8 +407,8 @@ class DeepPlugin(BasePlugin):
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
-    def test_import_error_handling(self, tmp_path):
-        """Test that import errors are handled gracefully."""
+    def test_import_errors_raise_unless_module_is_explicitly_excluded(self, tmp_path):
+        """Eligibility is declared before import; failures are not missing members."""
         pkg_dir = tmp_path / "test_pkg7"
         pkg_dir.mkdir()
         (pkg_dir / "__init__.py").write_text("")
@@ -442,15 +442,21 @@ class ValidPlugin(BasePlugin):
             BasePlugin = base_module.BasePlugin
             pkg = importlib.import_module("test_pkg7")
 
-            # Should handle import error and continue
+            with pytest.raises(ModuleNotFoundError, match="nonexistent_module"):
+                discover_registry_classes(
+                    package_path=pkg.__path__,
+                    package_prefix="test_pkg7.",
+                    base_class=BasePlugin,
+                    exclude_modules={"base"},
+                )
             discovered = discover_registry_classes(
                 package_path=pkg.__path__,
                 package_prefix="test_pkg7.",
                 base_class=BasePlugin,
-                exclude_modules={"base"},
+                exclude_modules={"base", "broken"},
             )
 
-            # Should still find ValidPlugin despite broken module
+            # An explicitly excluded module is never imported.
             names = {cls.__name__ for cls in discovered}
             assert "ValidPlugin" in names
             assert "BrokenPlugin" not in names
