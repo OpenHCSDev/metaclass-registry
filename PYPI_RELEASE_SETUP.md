@@ -81,18 +81,9 @@ The publish workflow (`.github/workflows/publish.yml`) performs these steps:
 
 ## Version Bumping for Future Releases
 
-For subsequent releases, update the version in two places:
-
-1. **pyproject.toml**: Update the `version` field:
-   ```toml
-   [project]
-   version = "0.2.0"
-   ```
-
-2. **src/metaclass_registry/__init__.py**: Update the `__version__` variable:
-   ```python
-   __version__ = "0.2.0"
-   ```
+For subsequent releases, update `__version__` in
+`src/metaclass_registry/__init__.py`. Hatch reads that declaration through
+`[tool.hatch.version]`; do not add a second version to `pyproject.toml`.
 
 Then create and push a new tag:
 ```bash
