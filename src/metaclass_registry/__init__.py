@@ -37,6 +37,7 @@ from .exceptions import (
     DuplicateRegistryKeyError,
     RegistryError,
 )
+from .mro_dispatch import MroDispatch, handles
 
 __all__ = [
     # Core
@@ -62,6 +63,9 @@ __all__ = [
     "import_module_preserving_root_logging",
     # Cache
     "RegistryCacheManager",
+    # MRO dispatch
+    "MroDispatch",
+    "handles",
     # Exceptions
     "RegistryError",
     "DuplicateRegistryKeyError",
