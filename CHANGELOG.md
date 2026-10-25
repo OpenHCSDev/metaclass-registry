@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `metaclass_registry.mro_dispatch`: `MroDispatch` and `handles`, moved from
+  `agent_comms.mro_dispatch`. A consumer declares `@handles(SomeClass)` on its
+  methods; dispatch runs the handlers along the value's MRO, most specific
+  first, so a handler on `ast.stmt` also receives every statement subclass.
+  A handler may return a same-type replacement or `DISCARD`.
+
 ## 0.4.1
 
 - P54: `LazyDiscoveryDict` accepts a declared module as well as a package.
