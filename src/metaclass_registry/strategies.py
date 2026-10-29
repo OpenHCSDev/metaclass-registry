@@ -103,7 +103,7 @@ class EnumKeyedStrategyMixin(Generic[_EnumT]):
     __registry_key__ = RegistryKeyAttribute.STRATEGY_LABEL.value
     __skip_if_no_key__ = True
     __registry_family__ = RegistryFamily(RegistryKeyAttribute.STRATEGY_LABEL)
-    __enum_member_attr__: ClassVar[str] = "strategy_key"
+    __enum_member_attr__: ClassVar[str] = RegistryKeyAttribute.STRATEGY_KEY.value
     __registry__: ClassVar[Mapping[Any, type[Any]]]
     __key_extractor__: ClassVar[Any]
     strategy_label: ClassVar[str | None] = None
@@ -285,7 +285,7 @@ class NominalTypeStrategyFamilyMixin(NominalTypeKeyedStrategyMixin):
 class MostDerivedContextStrategyMeta(AutoRegisterMeta):
     """Create one registry for each most-derived context strategy family."""
 
-    REGISTRY_KEY = "strategy_key"
+    REGISTRY_KEY = RegistryKeyAttribute.STRATEGY_KEY.value
     FAMILY_ROOT_MARKER = "__most_derived_context_strategy_template__"
 
     def __new__(
@@ -349,12 +349,12 @@ class MostDerivedContextStrategyMixin(
     priority numbers, or repeated registry scans.
     """
 
-    __registry_key__: ClassVar[str] = "strategy_key"
+    __registry_key__: ClassVar[str] = RegistryKeyAttribute.STRATEGY_KEY.value
     __skip_if_no_key__: ClassVar[bool] = True
     __registry_family__ = RegistryFamily(RegistryKeyAttribute.STRATEGY_KEY.value)
     __most_derived_context_strategy_template__: ClassVar[bool] = True
     strategy_key: ClassVar[Any | None] = None
-    strategy_key_attr: ClassVar[str] = "strategy_key"
+    strategy_key_attr: ClassVar[str] = RegistryKeyAttribute.STRATEGY_KEY.value
 
     @classmethod
     def for_context(
