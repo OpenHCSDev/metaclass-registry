@@ -188,6 +188,25 @@ class RegistryKeyAttribute(str, Enum):
     LAYOUT_KEY = "layout_key"
 
 
+class RegistryAttribute(str, Enum):
+    """The class attributes the registry machinery reads and writes on a family's classes.
+
+    Each is spelled here once; code naming one writes
+    ``RegistryAttribute.X.value``, the plain string, because formatting a
+    member (``f"{member}"``) gives ``RegistryAttribute.X`` from Python 3.12.
+    """
+
+    REGISTRY = "__registry__"
+    REGISTRY_KEY = "__registry_key__"
+    KEY_EXTRACTOR = "__key_extractor__"
+    SKIP_IF_NO_KEY = "__skip_if_no_key__"
+    SECONDARY_REGISTRIES = "__secondary_registries__"
+    REGISTRY_NAME = "__registry_name__"
+    REGISTRY_FAMILY = "__registry_family__"
+    REGISTRY_CONFIG = "__registry_config__"
+    REGISTRY_DICT = "__registry_dict__"
+
+
 class SecondaryRegistryDict(dict[RegistryKey, Any]):
     """
     Dict for secondary registries that auto-triggers primary registry discovery.

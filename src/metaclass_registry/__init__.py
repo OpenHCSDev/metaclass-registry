@@ -15,6 +15,7 @@ from .core import (
     LazyDiscoveryDict,
     RegisteredEnumMeta,
     RegistryConfig,
+    RegistryAttribute,
     RegistryFamily,
     RegistryKeyAttribute,
     SecondaryRegistry,
@@ -43,6 +44,7 @@ __all__ = [
     # Core
     "AutoRegisterMeta",
     "RegistryConfig",
+    "RegistryAttribute",
     "RegistryFamily",
     "RegistryKeyAttribute",
     "RegisteredEnumMeta",
