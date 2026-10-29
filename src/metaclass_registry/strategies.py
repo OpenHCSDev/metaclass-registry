@@ -21,7 +21,7 @@ from .core import (
     RegistryConfig,
     RegistryFamily,
     RegistryKeyAttribute,
-    extract_key_from_class_name,
+    extract_key_from_class_name, RegistryAttribute,
 )
 
 _EnumT = TypeVar("_EnumT", bound=Enum)
@@ -111,7 +111,7 @@ class EnumKeyedStrategyMixin(Generic[_EnumT]):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         _invalidate_family_projections()
-        if "__key_extractor__" not in cls.__dict__:
+        if RegistryAttribute.KEY_EXTRACTOR.value not in cls.__dict__:
             cls.__key_extractor__ = staticmethod(enum_key_from_class)
 
     @classmethod
@@ -169,7 +169,7 @@ class NominalTypeKeyedStrategyMixin(RegisteredStrategyTypesMixin[_TypeStrategyT]
         member = cls.value_type
         if not _is_nominal_type_member(member):
             return
-        if cls.__dict__.get("value_type_label") is None:
+        if cls.__dict__.get(RegistryKeyAttribute.VALUE_TYPE_LABEL.value) is None:
             cls.value_type_label = _nominal_type_key(member)
 
     @classmethod
@@ -300,22 +300,22 @@ class MostDerivedContextStrategyMeta(AutoRegisterMeta):
             base.__dict__.get(mcs.FAMILY_ROOT_MARKER) is True for base in bases
         )
         if starts_context_family:
-            registry_key = attrs.get("__registry_key__", mcs.REGISTRY_KEY)
-            key_extractor = attrs.get("__key_extractor__")
+            registry_key = attrs.get(RegistryAttribute.REGISTRY_KEY.value, mcs.REGISTRY_KEY)
+            key_extractor = attrs.get(RegistryAttribute.KEY_EXTRACTOR.value)
             if key_extractor is None:
                 key_extractor = next(
                     (
-                        getattr(base, "__key_extractor__", None)
+                        getattr(base, RegistryAttribute.KEY_EXTRACTOR.value, None)
                         for base in bases
-                        if getattr(base, "__key_extractor__", None) is not None
+                        if getattr(base, RegistryAttribute.KEY_EXTRACTOR.value, None) is not None
                     ),
                     None,
                 )
             registry = LazyDiscoveryDict()
-            attrs["__registry__"] = registry
-            attrs["__registry_key__"] = registry_key
-            attrs["__skip_if_no_key__"] = True
-            attrs["__registry_family__"] = RegistryFamily(registry_key)
+            attrs[RegistryAttribute.REGISTRY.value] = registry
+            attrs[RegistryAttribute.REGISTRY_KEY.value] = registry_key
+            attrs[RegistryAttribute.SKIP_IF_NO_KEY.value] = True
+            attrs[RegistryAttribute.REGISTRY_FAMILY.value] = RegistryFamily(registry_key)
             return super().__new__(
                 mcs,
                 name,
@@ -351,7 +351,7 @@ class MostDerivedContextStrategyMixin(
 
     __registry_key__: ClassVar[str] = "strategy_key"
     __skip_if_no_key__: ClassVar[bool] = True
-    __registry_family__ = RegistryFamily("strategy_key")
+    __registry_family__ = RegistryFamily(RegistryKeyAttribute.STRATEGY_KEY.value)
     __most_derived_context_strategy_template__: ClassVar[bool] = True
     strategy_key: ClassVar[Any | None] = None
     strategy_key_attr: ClassVar[str] = "strategy_key"
