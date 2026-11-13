@@ -29,6 +29,7 @@ class MroDispatch:
     """
 
     _handler_declarations: ClassVar[tuple[tuple[str, tuple[type, ...]], ...]] = ()
+    _handler_names: ClassVar[dict[type, tuple[str, ...]]] = {}
     DISCARD: ClassVar[object] = object()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -45,14 +46,30 @@ class MroDispatch:
             for name, method in methods.items()
             if (classes := getattr(method, "__handled_classes__", ()))
         )
+        cls._handler_names = {}
 
     @classmethod
     def handler_names_for(cls, value_type: type) -> Iterator[str]:
         """Resolve a declaration directly; instance dispatch uses the same lookup."""
-        for capability in value_type.__mro__:
-            for name, classes in cls._handler_declarations:
-                if capability in classes:
-                    yield name
+        return iter(cls.resolved_handler_names(value_type))
+
+    @classmethod
+    def resolved_handler_names(cls, value_type: type) -> tuple[str, ...]:
+        """The handlers this consumer declares for a value type, most specific first.
+
+        The consumer's declarations and the value type's MRO are both fixed when their
+        classes are created, so the pair is resolved once and every dispatch reads it.
+        """
+        try:
+            return cls._handler_names[value_type]
+        except KeyError:
+            names = cls._handler_names[value_type] = tuple(
+                name
+                for capability in value_type.__mro__
+                for name, classes in cls._handler_declarations
+                if capability in classes
+            )
+            return names
 
     @classmethod
     def handler_for(cls, value_type: type) -> Callable[..., Any]:

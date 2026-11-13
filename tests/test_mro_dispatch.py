@@ -44,6 +44,21 @@ def test_base_class_registration_catches_subclass_nodes() -> None:
     assert list(NodeKinds.handler_names_for(ast.If)) == ["statement", "any_node"]
 
 
+def test_a_subclass_resolves_its_own_handlers_after_its_parent_has() -> None:
+    assert list(NodeKinds.handler_names_for(ast.Return)) == ["return_", "statement", "any_node"]
+
+    class LoudKinds(NodeKinds):
+        @handles(ast.Return)
+        def shout(self, node: ast.Return) -> None:
+            self.seen.append("LOUD")
+
+    assert "shout" in LoudKinds.handler_names_for(ast.Return)
+    assert "shout" not in NodeKinds.handler_names_for(ast.Return)
+    loud = LoudKinds()
+    loud.dispatch_sync(ast.Return(value=None))
+    assert sorted(loud.seen) == ["AST", "LOUD", "Return", "stmt"]
+
+
 def test_value_without_a_declared_handler_passes_through() -> None:
     kinds = NodeKinds()
     value = object()
