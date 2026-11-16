@@ -27,6 +27,14 @@ class OwnDeclarations:
             yield from declared
 
     @classmethod
+    def declared_of[Kind](cls, kind: type[Kind], bases: Iterable[type] | None = None) -> Iterator[Kind]:
+        """Every value of ``kind`` each base declares in its own body, in that order."""
+        for base in cls.__mro__ if bases is None else bases:
+            for value in base.__dict__.values():
+                if isinstance(value, kind):
+                    yield value
+
+    @classmethod
     def declared_union(cls, name: str, bases: Iterable[type] | None = None) -> tuple[object, ...]:
         """The declared items, each once, nearest declaration first."""
         return tuple(dict.fromkeys(cls.declared_items(name, bases)))
