@@ -37,9 +37,11 @@ from .exceptions import (
     DuplicateRegistryKeyError,
     RegistryError,
 )
+from .abstract_hooks import AbstractHooksMeta
 from .mro_dispatch import MroDispatch, handles
 
 __all__ = [
+    "AbstractHooksMeta",
     # Core
     "AutoRegisterMeta",
     "RegistryConfig",
