@@ -5,7 +5,7 @@ This package provides a generic metaclass infrastructure for automatic plugin
 registration with lazy discovery, caching, and zero boilerplate.
 """
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 from .cache import RegistryCacheManager
 from .core import (
