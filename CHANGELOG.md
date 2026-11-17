@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - `metaclass_registry.mro_dispatch`: `MroDispatch` and `handles`, moved from
   `agent_comms.mro_dispatch`. A consumer declares `@handles(SomeClass)` on its
